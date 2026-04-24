@@ -22,6 +22,10 @@ modern-data-stack-starter/
 └── README.md             # Quick-start and setup instructions
 ```
 
+## Git Workflow
+
+- **Never merge directly to main.** Always push to a feature branch and create a PR so the owner can review and approve it.
+
 ## Key Facts
 
 - **Current phase:** Phase 1 (Bootstrap) — Airbyte + Cloudflare R2 + dbt Core + DuckDB + Metabase
