@@ -1,6 +1,6 @@
 # modern-data-stack-starter
 
-A lightweight, cost-effective data platform blueprint for early-stage startups (~$15/month).
+A lightweight, cost-effective data platform blueprint for early-stage startups (~$15/month). 
 
 For the full architecture rationale, phase plans, and tool decisions see [docs/architecture.md](docs/architecture.md).
 
