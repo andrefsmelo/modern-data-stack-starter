@@ -8,7 +8,7 @@
 
 This project documents and implements a production-ready data platform designed for small startups that need to move fast, keep costs low, and avoid architectural dead ends. The stack is intentionally minimal at first, with a clear upgrade path at each layer as the business scales.
 
-For the operational signals that should drive a move between phases or tools, see [evolution-triggers.md](evolution-triggers.md). For the ingestion-tool landscape and decision matrix (Airbyte vs. dlt vs. Meltano vs. Fivetran vs. CDC), see [ingestion.md](ingestion.md).
+For the operational signals that should drive a move between phases or tools, see [evolution-triggers.md](evolution-triggers.md). For the ingestion-tool landscape and decision matrix (Airbyte vs. dlt vs. Meltano vs. Fivetran vs. CDC vs. OCR), see [ingestion.md](ingestion.md). For ephemeral compute, GitHub Actions pricing, and the escape hatches when it doesn't fit (Lambda, Fargate, Modal, Cloud Run), see [orchestration.md](orchestration.md).
 
 -----
 
@@ -50,7 +50,7 @@ Ingestion → Storage → Transformation → Orchestration → Visualization →
 |Storage       |Amazon S3                             |Industry-standard, mature ecosystem, cheap at small scale|
 |Format        |Parquet (Iceberg-ready layout)        |Open standard, partition layout compatible with Iceberg later|
 |Transformation|dbt Core + DuckDB                     |Zero license cost, handles 100s of GB on a single node|
-|Orchestration |GitHub Actions (cron schedules)       |No new infrastructure, sufficient for <10 pipelines|
+|Orchestration |GitHub Actions (cron schedules)       |Ephemeral runners, $0 in the free tier for typical use; see [orchestration.md](orchestration.md)|
 |Visualization |Metabase (self-hosted)                |Free, easy to use, self-contained                  |
 |Observability |GitHub Actions notifications → Slack  |Free, surfaces failures where the team already lives|
 
