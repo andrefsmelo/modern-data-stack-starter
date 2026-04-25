@@ -2,7 +2,7 @@
 
 A lightweight, cost-effective data platform blueprint for companies of up to ~50 employees. Designed to bootstrap in days, run for ~$30/month, and grow without throwing the foundation away.
 
-For the full architecture rationale, layered phase plans, and tool decisions see [docs/architecture.md](docs/architecture.md). For the ingestion-tool deep dive (Airbyte vs. dlt vs. Meltano vs. Fivetran vs. CDC), see [docs/ingestion.md](docs/ingestion.md). For the operational signals that should drive a change, see [docs/evolution-triggers.md](docs/evolution-triggers.md).
+For the full architecture rationale, layered phase plans, and tool decisions see [docs/architecture.md](docs/architecture.md). For the ingestion-tool deep dive (Airbyte vs. dlt vs. Meltano vs. Fivetran vs. CDC vs. OCR), see [docs/ingestion.md](docs/ingestion.md). For ephemeral compute and how scheduling actually works (GitHub Actions vs. Lambda vs. Fargate vs. Modal) see [docs/orchestration.md](docs/orchestration.md). For the operational signals that should drive a change, see [docs/evolution-triggers.md](docs/evolution-triggers.md).
 
 -----
 
@@ -26,7 +26,7 @@ If you have > 50 employees, > 5 data engineers, or you need real-time pipelines,
 | Ingestion      | dlt (default) or Airbyte (if UI)  | See [docs/ingestion.md](docs/ingestion.md) for the choice |
 | Storage        | Amazon S3 (Parquet, Iceberg-ready)| Open format, mature ecosystem, cheap at small scale|
 | Transformation | dbt Core + DuckDB                 | No license cost, handles 100s of GB on a single node|
-| Orchestration  | GitHub Actions (cron)             | No new infrastructure to operate                   |
+| Orchestration  | GitHub Actions (cron)             | Ephemeral runners, $0 in the free tier — see [docs/orchestration.md](docs/orchestration.md) |
 | Visualization  | Metabase (self-hosted)            | Free, easy to use, self-contained                  |
 | Observability  | GitHub Actions → Slack alerts     | Surfaces failures where the team already lives     |
 
@@ -95,6 +95,7 @@ modern-data-stack-starter/
 ├── docs/
 │   ├── architecture.md       # Architecture, phases, cost, conventions
 │   ├── ingestion.md          # Ingestion tool landscape and decision matrix
+│   ├── orchestration.md      # Ephemeral compute, GH Actions pricing, escape hatches
 │   ├── evolution-triggers.md # Per-layer signals to scale
 │   └── decisions/            # Architecture Decision Records (ADRs)
 └── README.md
@@ -124,7 +125,9 @@ In production, these live as **GitHub Actions Secrets** — never commit a popul
 
 ## Running in CI
 
-Transformations run automatically via GitHub Actions on a cron schedule. The workflow downloads `prod.duckdb` from S3, runs `dbt build`, and uploads the updated file back. Concurrency is capped at one to prevent concurrent writers. See [docs/decisions/0001-duckdb-execution.md](docs/decisions/0001-duckdb-execution.md) for the full rationale.
+Every scheduled job runs on an **ephemeral GitHub Actions runner** — provisioned in ~10 seconds, runs the work, destroyed when done. No 24/7 VM bill. A typical Phase 1 stack (a handful of dlt syncs and a dbt build every 6 hours) fits inside the **2,000-minute free tier for private repos**, so the orchestrator costs $0 for most teams.
+
+Transformations download `prod.duckdb` from S3, run `dbt build`, and upload the updated file back. Concurrency is capped at one to prevent concurrent writers. See [docs/decisions/0001-duckdb-execution.md](docs/decisions/0001-duckdb-execution.md) for the DuckDB rationale and [docs/orchestration.md](docs/orchestration.md) for the orchestration pattern, pricing math, and the escape hatches (Lambda, Fargate, Modal, Cloud Run) for the rare cases GH Actions doesn't fit.
 
 -----
 
