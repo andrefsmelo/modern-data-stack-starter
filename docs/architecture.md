@@ -8,7 +8,7 @@
 
 This project documents and implements a production-ready data platform designed for small startups that need to move fast, keep costs low, and avoid architectural dead ends. The stack is intentionally minimal at first, with a clear upgrade path at each layer as the business scales.
 
-For the operational signals that should drive a move between phases or tools, see [evolution-triggers.md](evolution-triggers.md).
+For the operational signals that should drive a move between phases or tools, see [evolution-triggers.md](evolution-triggers.md). For the ingestion-tool landscape and decision matrix (Airbyte vs. dlt vs. Meltano vs. Fivetran vs. CDC), see [ingestion.md](ingestion.md).
 
 -----
 
@@ -147,15 +147,19 @@ DuckDB execution location and state handling are pinned in [decisions/0001-duckd
 - Two DuckDB files: `prod.duckdb` (CI-managed, pulled from S3 before each run, pushed back after) and `dev.duckdb` (local, ephemeral).
 - dbt targets `prod` and `dev` mirror the above.
 
-### Ingestion: Airbyte vs. dlt vs. Python
+### Ingestion: choosing a tool
 
-Pick in this order, falling through only when the previous option does not fit:
+The default rule (use this for day-to-day calls):
 
-1. **Airbyte connector exists and is "Generally Available"** → use Airbyte. Don't write code you don't have to.
-2. **Airbyte connector is "Alpha/Beta" or missing, but the source has a stable REST API** → write a `dlt` pipeline. It handles incremental state, schema inference, and Parquet output for free.
-3. **Source is exotic (binary file drops, scraping, vendor SDK)** → custom Python script invoked from GitHub Actions, writing Parquet to S3 with the same path convention.
+1. **Engineering-led team, 1–5 SaaS sources** → `dlt` pipeline in GitHub Actions. No server, no VM bill.
+2. **Mixed team where non-engineers add sources** → self-hosted **Airbyte** (4 GB VM).
+3. **Engineering-led, 5–15 SaaS sources, want pre-built coverage without the JVM** → **Meltano**.
+4. **Source is exotic (binary file drops, scraping, vendor SDK)** → custom Python script invoked from GitHub Actions, writing Parquet to S3 with the same path convention.
+5. **Single source produces > 10 GB/day** → peel it off and use **Sling** or a dedicated dlt job. Don't scale the general-purpose tool for a bulk source.
 
 Document the choice and rationale in the ingestion source's README.
+
+When the rule does not fit (managed-vendor evaluation, CDC, > 15 sources, > 20 engineers), see the full landscape and decision matrix in [ingestion.md](ingestion.md).
 
 ### Secrets
 

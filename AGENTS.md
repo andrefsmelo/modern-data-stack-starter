@@ -5,6 +5,7 @@ This file helps AI agents navigate the repository quickly.
 ## Architecture & Design
 
 - **[docs/architecture.md](docs/architecture.md)** — full architecture: phase plans, layers, cost estimates, data flow, conventions, naming, secrets, environments, data quality severities.
+- **[docs/ingestion.md](docs/ingestion.md)** — ingestion-tool landscape (managed, OSS, code-first, CDC), pros/cons, and the decision matrix for picking one. Use when reasoning about ingestion choices.
 - **[docs/evolution-triggers.md](docs/evolution-triggers.md)** — per-layer operational signals and the recommended next move when each fires (use this when reasoning about scaling decisions).
 - **[docs/decisions/](docs/decisions/)** — Architecture Decision Records. Start with `0001-duckdb-execution.md`.
 
@@ -18,6 +19,7 @@ modern-data-stack-starter/
 ├── visualization/        # Metabase dashboard exports and configs
 ├── docs/
 │   ├── architecture.md       # ← full architecture (start here)
+│   ├── ingestion.md          # ← ingestion-tool landscape and decision matrix
 │   ├── evolution-triggers.md # ← when to scale each layer
 │   └── decisions/            # Architecture Decision Records (ADRs)
 └── README.md             # Quick-start and setup instructions
@@ -38,4 +40,4 @@ modern-data-stack-starter/
 - **Bucket naming:** `{org}-data-{env}` (e.g. `acme-data-prod`, `acme-data-dev`)
 - **Secrets:** GitHub Actions Secrets only; dbt reads via `env_var()`
 - **Test severities:** `error` blocks the pipeline (PK uniqueness, not-null on join keys); `warn` notifies but does not block.
-- **Ingestion choice order:** Airbyte (GA connector) → dlt (custom REST) → Python (exotic).
+- **Ingestion default:** dlt (engineering-led teams) or Airbyte (when non-engineers add sources). Full landscape and decision matrix in `docs/ingestion.md`.
