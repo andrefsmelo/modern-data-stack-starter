@@ -8,12 +8,14 @@
 
 This project documents and implements a production-ready data platform designed for small startups that need to move fast, keep costs low, and avoid architectural dead ends. The stack is intentionally minimal at first, with a clear upgrade path at each layer as the business scales.
 
+For the operational signals that should drive a move between phases or tools, see [evolution-triggers.md](evolution-triggers.md).
+
 -----
 
 ## Goals
 
-- Keep infrastructure cost under $20/month in the early stage
-- Avoid vendor lock-in by using open formats and portable tools
+- Keep infrastructure cost under ~$40/month in the early stage
+- Avoid vendor lock-in by using open formats (Parquet, Iceberg) and portable tools
 - Enable a single data engineer to own and operate the full platform
 - Provide a clear migration path for each layer as data volume grows
 - Serve as a reusable blueprint for future projects
@@ -22,9 +24,13 @@ This project documents and implements a production-ready data platform designed 
 
 ## Non-Goals
 
-- Real-time / streaming pipelines (out of scope for this phase)
+- Real-time / streaming pipelines
+- Change-Data-Capture (CDC) from operational databases
 - Multi-region or high-availability setup
-- Enterprise governance and cataloging tooling
+- Enterprise governance and cataloging tooling (DataHub, Collibra, Atlan)
+- PII / GDPR tooling (masking, subject-access requests, retention automation)
+- Reverse-ETL (syncing modeled data back into SaaS tools)
+- ML feature stores or model serving
 
 -----
 
@@ -33,51 +39,62 @@ This project documents and implements a production-ready data platform designed 
 ### Layers
 
 ```
-Ingestion → Storage → Transformation → Orchestration → Visualization
+Ingestion → Storage → Transformation → Orchestration → Visualization → Observability
 ```
 
 ### Phase 1 (0-6 months) — Bootstrap
 
 |Layer         |Tool                                  |Rationale                                          |
 |--------------|--------------------------------------|---------------------------------------------------|
-|Ingestion     |Airbyte (self-hosted) + Python scripts|Ready-made connectors + flexibility for custom APIs|
-|Storage       |Cloudflare R2                         |S3-compatible, no egress fees, generous free tier  |
-|Format        |Parquet                               |Open standard, compatible with any downstream tool |
-|Transformation|dbt Core + DuckDB                     |Zero cost, runs locally, handles GBs with ease     |
-|Orchestration |GitHub Actions / cron                 |No new infrastructure, sufficient for few pipelines|
+|Ingestion     |Airbyte (self-hosted) + dlt / Python  |Connectors for SaaS + lightweight code for custom APIs|
+|Storage       |Amazon S3                             |Industry-standard, mature ecosystem, cheap at small scale|
+|Format        |Parquet (Iceberg-ready layout)        |Open standard, partition layout compatible with Iceberg later|
+|Transformation|dbt Core + DuckDB                     |Zero license cost, handles 100s of GB on a single node|
+|Orchestration |GitHub Actions (cron schedules)       |No new infrastructure, sufficient for <10 pipelines|
 |Visualization |Metabase (self-hosted)                |Free, easy to use, self-contained                  |
+|Observability |GitHub Actions notifications → Slack  |Free, surfaces failures where the team already lives|
 
 ### Phase 2 (6-18 months) — Growth
 
 |Layer            |Tool                             |Trigger to migrate                                   |
 |-----------------|---------------------------------|-----------------------------------------------------|
-|Storage + Compute|BigQuery (on-demand) or Snowflake|Data volume > 50 GB or query latency becomes an issue|
-|Transformation   |dbt Core in CI (GitHub Actions)  |Team size grows, need for scheduled runs and testing |
-|Orchestration    |Prefect Cloud or Dagster Cloud   |More than 10 pipelines, dependency management needed |
+|Storage          |S3 + Apache Iceberg              |Need ACID writes, schema evolution, time travel, or multi-engine reads|
+|Compute          |BigQuery (on-demand) or Snowflake|DuckDB query latency consistently > 5 min on tuned models, or raw volume > 200 GB|
+|Transformation   |dbt Core in CI (GitHub Actions) + scheduled BigQuery/Snowflake runs|Team size grows; need scheduled runs and tested artifacts|
+|Orchestration    |Prefect Cloud or Dagster Cloud   |More than 10 pipelines or non-trivial dependencies   |
+|Ingestion        |Airbyte Cloud or dedicated VM    |Source count > 10, or self-hosted Airbyte memory pressure|
 |Visualization    |Metabase or Looker Studio        |BI needs expand beyond simple dashboards             |
+|Observability    |Sentry / Grafana Cloud + dbt artifacts|Failures across multiple systems require a single pane|
 
 ### Phase 3 (18+ months) — Scale
 
 |Layer         |Tool                             |
 |--------------|---------------------------------|
-|Storage       |S3 + Delta Lake or Apache Iceberg|
-|Compute       |Spark on Databricks or EMR       |
+|Storage       |S3 + Apache Iceberg or Delta Lake|
+|Compute       |Spark on Databricks or EMR, Trino, or Snowflake at scale|
 |Transformation|dbt Cloud                        |
 |Orchestration |Dagster or Apache Airflow        |
 |Visualization |Looker or custom tooling         |
+|Observability |Datadog / OpenTelemetry + Monte Carlo or Elementary|
 
 -----
 
 ## Cost Estimate — Phase 1
 
-|Component                    |Monthly Cost  |
-|-----------------------------|--------------|
-|Cloudflare R2 (up to 10 GB)  |$0            |
-|dbt Core                     |$0            |
-|DuckDB                       |$0            |
-|Metabase (self-hosted, $5 VM)|~$5           |
-|Airbyte (self-hosted, $10 VM)|~$10          |
-|**Total**                    |**~$15/month**|
+VM sizes are calibrated against actual memory needs (Airbyte JVM ≈ 4 GB, Metabase JVM ≈ 2 GB). The earlier "$5 + $10" budget under-provisioned both services.
+
+|Component                         |Monthly Cost   |
+|----------------------------------|---------------|
+|Amazon S3 (≤ 10 GB + low requests)|~$1            |
+|dbt Core                          |$0             |
+|DuckDB                            |$0             |
+|Airbyte (self-hosted, 4 GB VM)    |~$20           |
+|Metabase (self-hosted, 2 GB VM)   |~$10           |
+|GitHub Actions (free tier)        |$0             |
+|Slack (free tier)                 |$0             |
+|**Total**                         |**~$30-35/mo** |
+
+If $30/mo is still too high, swap Airbyte for [dlt](https://dlthub.com) running inside GitHub Actions — that drops the Airbyte VM entirely and brings the budget to ~$10/mo, at the cost of writing more connector code.
 
 -----
 
@@ -88,11 +105,11 @@ External Sources
       │
       ▼
 [Ingestion Layer]
-Airbyte / Python scripts
+Airbyte / dlt / Python scripts
       │
       ▼
 [Raw Storage]
-Cloudflare R2 — Parquet files
+Amazon S3 — Parquet files (Iceberg-ready layout)
       │
       ▼
 [Transformation Layer]
@@ -105,7 +122,13 @@ dbt Core + DuckDB
       ▼
 [Visualization Layer]
 Metabase
+      │
+      ▼
+[Observability]
+GitHub Actions → Slack alerts; dbt artifacts archived to S3
 ```
+
+DuckDB execution location and state handling are pinned in [decisions/0001-duckdb-execution.md](decisions/0001-duckdb-execution.md).
 
 -----
 
@@ -115,17 +138,50 @@ Metabase
 
 - Tables: `snake_case`
 - dbt models: prefixed by layer (`stg_`, `int_`, `fct_`, `dim_`)
-- S3 paths: `s3://bucket/raw/{source}/{entity}/year={yyyy}/month={mm}/day={dd}/`
+- S3 paths: `s3://{bucket}/raw/{source}/{entity}/year={yyyy}/month={mm}/day={dd}/`
+- Bucket naming: `{org}-data-{env}` (e.g. `acme-data-prod`, `acme-data-dev`)
+
+### Environments
+
+- Two S3 prefixes per bucket: `prod/` and `dev/`. Developers read from `prod/raw/` but write modeled outputs only to `dev/`.
+- Two DuckDB files: `prod.duckdb` (CI-managed, pulled from S3 before each run, pushed back after) and `dev.duckdb` (local, ephemeral).
+- dbt targets `prod` and `dev` mirror the above.
+
+### Ingestion: Airbyte vs. dlt vs. Python
+
+Pick in this order, falling through only when the previous option does not fit:
+
+1. **Airbyte connector exists and is "Generally Available"** → use Airbyte. Don't write code you don't have to.
+2. **Airbyte connector is "Alpha/Beta" or missing, but the source has a stable REST API** → write a `dlt` pipeline. It handles incremental state, schema inference, and Parquet output for free.
+3. **Source is exotic (binary file drops, scraping, vendor SDK)** → custom Python script invoked from GitHub Actions, writing Parquet to S3 with the same path convention.
+
+Document the choice and rationale in the ingestion source's README.
+
+### Secrets
+
+- All secrets live in **GitHub Actions Secrets** (org or repo level).
+- Local development uses a `.env` file ignored by git, populated from a shared 1Password vault.
+- No secrets in dbt `profiles.yml` — use `env_var()` exclusively.
+
+### Schema Evolution
+
+- All raw Parquet writes include a `_ingested_at` timestamp and a `_schema_version` integer.
+- Breaking schema changes (column drop, type narrow) require a new `_schema_version` and a parallel staging model until the old version ages out.
+- `dbt source freshness` runs in CI; staleness > 24 h alerts to Slack.
 
 ### Data Quality
 
-- dbt native tests (`not_null`, `unique`, `accepted_values`) on all staging models
-- At least one freshness test per source
-- All failures block the pipeline in CI
+dbt tests are tagged by severity to prevent alert fatigue:
+
+- `severity: error` — blocks the pipeline. Reserved for primary-key uniqueness, not-null on join keys, and accepted-values on enums consumed by dashboards.
+- `severity: warn` — logs a warning and posts to Slack but does not block downstream models. Default for all other tests.
+- Every staging model has at least one `error`-level uniqueness test on its primary key.
+- Every source has at least one `dbt source freshness` check.
 
 ### Documentation
 
 - Every dbt model must have a description in `schema.yml`
+- `dbt docs` is generated in CI and published to GitHub Pages on `main`
 - Architecture decisions documented as ADRs in `docs/decisions/`
 
 -----
@@ -137,20 +193,25 @@ Metabase
 |Apache Kafka      |Overkill without real streaming requirements        |
 |Databricks        |High cost and operational complexity for small teams|
 |Amazon Redshift   |Fixed instance cost, not suited for early stage     |
+|Fivetran          |Per-row pricing dominates the budget at low volume  |
 |DataHub / Atlan   |High maintenance overhead, premature optimization   |
 |Tableau / Power BI|License cost not justified at this stage            |
+|Cloudflare R2     |Considered for zero-egress; rejected because S3's tooling ecosystem (Iceberg, Athena, BigQuery external tables) is materially deeper. Revisit if egress costs ever exceed ~$50/mo.|
 
 -----
 
-## Migration Triggers
+## Migration Triggers (Summary)
 
-These are the signals to move from Phase 1 to Phase 2:
+The high-level signals to move from Phase 1 to Phase 2 are:
 
-- Query runtime on DuckDB consistently exceeds 5 minutes
-- Raw data volume surpasses 50 GB
+- Query runtime on DuckDB consistently exceeds 5 minutes after tuning
+- Raw data volume surpasses 200 GB
 - More than 10 active pipelines in production
+- More than 10 ingestion sources, or Airbyte VM consistently OOMs
 - A second data engineer joins the team
 - Stakeholders require SLA guarantees on dashboard freshness
+
+For the **full operational playbook** — per-layer triggers, what to do when each fires, and intermediate options that defer a Phase 2 jump — see [evolution-triggers.md](evolution-triggers.md).
 
 -----
 
@@ -158,6 +219,8 @@ These are the signals to move from Phase 1 to Phase 2:
 
 - [dbt Documentation](https://docs.getdbt.com)
 - [DuckDB Documentation](https://duckdb.org/docs)
+- [dlt Documentation](https://dlthub.com/docs)
 - [Airbyte Documentation](https://docs.airbyte.com)
-- [Cloudflare R2 Pricing](https://developers.cloudflare.com/r2/pricing)
+- [Apache Iceberg](https://iceberg.apache.org)
+- [Amazon S3 Pricing](https://aws.amazon.com/s3/pricing/)
 - [Metabase Documentation](https://www.metabase.com/docs)
