@@ -159,6 +159,21 @@ If a single source produces > 10 GB/day, **don't scale Airbyte** — peel that o
 
 **Move**: this is **out of scope for Phase 1**. Adopting CDC introduces a different operational discipline (Kafka or DMS, schema-evolution on the wire, idempotent consumers). Evaluate **AWS DMS** (managed, AWS-only) or **Estuary Flow** (managed, multi-cloud) before reaching for **Debezium + Kafka** (self-operated). Update the architecture doc's non-goals before adopting.
 
+### Scenario D — "One source is a PDF or photo" (document / OCR-driven addition)
+
+**Symptoms**: finance receives PDF invoices from vendors, ops scans paper forms, sales attaches contracts in PDF, the team uploads receipt photos, or an external partner drops scanned documents into a shared folder. Whatever the source, the data lives inside a document and needs **text + field extraction** before it can become a row.
+
+**Move**: add a **document extraction step** as a new ingestion job — don't try to bend Airbyte or dlt to do this. The flow lands the original file in `s3://{bucket}/raw/documents/...`, runs an extraction job, and writes structured Parquet to `s3://{bucket}/raw/documents_extracted/...`. dbt then treats the extracted output as a normal source.
+
+Pick the extractor by document profile:
+
+- **Variable layouts** (50 vendors send invoices in 50 formats, contracts from many counterparties): **LLM extraction** with **Claude** or **GPT-4o** using a structured-output schema. Cheapest path to a working pipeline; ~$0.01–0.05 per page; no per-template rules to maintain.
+- **Fixed templates** (your own forms, one vendor's invoice format, monthly reports from a single source): **AWS Textract** or **Google Document AI**. Cheaper per page at volume, deterministic, well-supported on AWS/GCP.
+- **Document type matches a Document AI specialized parser** (W-2, receipt, ID card, bank statement): **Google Document AI** specialized parser — returns clean structured fields out of the box.
+- **Sensitive / on-prem only** or **> 100k pages/month**: **PaddleOCR** or **docTR** self-hosted. Removes per-page cloud cost; needs a GPU and someone to operate the pipeline.
+
+Always keep the original document in S3 — re-extraction is the right answer when the schema or extractor changes. Validate every extraction with dbt tests (`not_null` on key fields, range checks on totals); non-deterministic extractors slip occasionally and dbt is the right place to catch it. See [docs/ingestion.md](docs/ingestion.md#unstructured--document-extraction-ocr--document-ai) for the full per-tool comparison.
+
 -----
 
 ## Contributing

@@ -6,16 +6,17 @@ This document is the deep-dive reference. The short decision rule lives in [arch
 
 -----
 
-## The four categories
+## The five categories
 
-Every modern ingestion tool falls into one of four buckets. Knowing the bucket is more important than knowing the tool.
+Every modern ingestion tool falls into one of five buckets. Knowing the bucket is more important than knowing the tool.
 
 1. **Managed (SaaS) ELT** — you pay, somebody else operates connectors. Examples: Fivetran, Stitch, Hevo, Estuary, Rivery, Matillion.
 2. **Open-source / self-hosted ELT** — you operate the connectors. Examples: Airbyte, Meltano, Singer (raw).
 3. **Code-first lightweight** — connectors are Python (or Go) you write/import, no server. Examples: dlt, Sling, Embulk.
 4. **CDC / streaming** — change-data-capture from operational databases, near-real-time. Examples: Debezium, AWS DMS, Google Datastream, Estuary Flow.
+5. **Unstructured / document extraction (OCR & document AI)** — when the source is a PDF, photo, scan, or other document that needs text and field extraction before it becomes a row. Examples: AWS Textract, Google Document AI, Mindee, PaddleOCR, LLM-based extraction (Claude / GPT-4o / Gemini).
 
-Phase 1 of this stack lives in categories 2 and 3. Categories 1 and 4 enter the picture in Phase 2 or beyond.
+Phase 1 of this stack lives in categories 2 and 3. Categories 1, 4, and 5 enter when a specific source profile demands them.
 
 -----
 
@@ -106,6 +107,79 @@ Phase 1 of this stack lives in categories 2 and 3. Categories 1 and 4 enter the 
 #### Google Datastream
 - **What it is**: AWS DMS equivalent on GCP.
 
+### Unstructured / document extraction (OCR & document AI)
+
+When the source is a **PDF, photo, scan, fax, or any document** — invoices, receipts, contracts, ID cards, lab reports — the data is locked inside an image or a PDF that is not natively a table. You need an extraction step **before** the rest of the ELT stack sees it.
+
+The pattern is always the same:
+
+```
+Document arrives (email attachment, upload, S3 drop)
+        │
+        ▼
+[Landing zone]
+s3://{bucket}/raw/documents/{type}/{yyyy}/{mm}/{dd}/file.pdf
+        │
+        ▼
+[Extraction job]   ← the new step (OCR + structuring)
+GitHub Actions / Lambda triggered by S3 event
+        │
+        ▼
+[Structured output]
+s3://{bucket}/raw/documents_extracted/{type}/{yyyy}/{mm}/{dd}/*.parquet
+        │
+        ▼
+[dbt staging]      ← treats the Parquet as a normal source
+```
+
+The choice of extraction tool depends on three things: **template predictability** (always the same vs. variable per vendor), **volume**, and **data sensitivity**.
+
+#### AWS Textract
+- **What it is**: managed OCR with extras for forms, tables, and signature detection.
+- **Pricing**: ~$0.0015 per page for plain text; ~$0.05 per page for tables/forms.
+- **Use when**: predictable structured documents (invoices in a fixed layout, application forms) on AWS.
+- **Skip when**: highly variable templates — you will spend more time on post-processing rules than the OCR itself.
+
+#### Google Document AI
+- **What it is**: same category as Textract, with **specialized parsers** for invoices, receipts, IDs, W-2s, etc. Each parser is pre-trained for that document class.
+- **Pricing**: similar order of magnitude to Textract; specialized parsers cost more per page.
+- **Use when**: your document type matches one of the specialized parsers — those parsers return structured fields (vendor, total, line items) without you writing extraction logic.
+- **Skip when**: your document is not in the parser catalog and you don't have volume to justify training a custom parser.
+
+#### Azure Document Intelligence (formerly Form Recognizer)
+- **What it is**: Azure's equivalent. Comparable feature set; choose based on which cloud you're already on.
+
+#### Mindee
+- **What it is**: managed extraction with pre-trained APIs for common document types (invoices, receipts, IDs, bank statements).
+- **Pricing**: per-document, predictable.
+- **Use when**: you want a single API that returns clean JSON for common business documents and you're not committed to a specific cloud.
+- **Skip when**: your documents are exotic or proprietary.
+
+#### LLM-based extraction (Claude / GPT-4o / Gemini)
+- **What it is**: send the document (PDF directly, or page images) to a multimodal LLM with a structured-output schema (JSON schema or Pydantic). The LLM does both OCR and field extraction in one call.
+- **Pricing**: ~$0.01–0.05 per page depending on model and page count.
+- **Strengths**: handles **highly variable templates** (50 different vendor invoice layouts) without per-template training; zero ML maintenance; trivial to add a new field — edit the schema and re-run.
+- **Weaknesses**: more expensive per page than Textract for high volume; non-deterministic at the margins (need validation rules); not appropriate for highly regulated PII unless you use a HIPAA/BAA-eligible offering.
+- **Use when**: document layouts vary across senders, OR you need to extract semantically rich fields (e.g. "the cancellation clause") that templated tools can't do.
+- **Skip when**: volume is > 100k pages/month — managed Document AI becomes cheaper at scale.
+
+#### PaddleOCR
+- **What it is**: open-source OCR engine from Baidu. Strong multi-lingual support, includes layout detection and table recognition.
+- **Use when**: data sensitivity forbids cloud APIs (regulated PII, on-prem requirements), or volume is large enough that per-page cloud pricing dominates.
+- **Skip when**: you don't have someone to operate a GPU and tune the pipeline.
+
+#### docTR / Surya / Tesseract
+- **What it is**: other OSS OCR options.
+  - **docTR** (Mindee, OSS): modern, end-to-end deep-learning OCR.
+  - **Surya**: newer, accurate on complex layouts.
+  - **Tesseract**: the classic. OK for clean printed text, weak on layout.
+- **Use when**: same situations as PaddleOCR — pick on language support and benchmark on your actual documents.
+
+#### Unstructured.io / LlamaParse / Marker / Docling
+- **What they are**: document **parsers** (not pure OCR). They turn a PDF into clean structured chunks (text + tables + images) suitable for downstream processing.
+- **Use when**: your PDFs are already digital (text-layer present) and the hard part is layout understanding rather than OCR.
+- **Skip when**: your PDFs are scans — you still need OCR first.
+
 -----
 
 ## Decision matrix for a company up to ~50 employees
@@ -120,6 +194,11 @@ Phase 1 of this stack lives in categories 2 and 3. Categories 1 and 4 enter the 
 | Need < 1 hour freshness from an operational DB | **AWS DMS** (managed) or **Debezium** (self-hosted) | This is CDC, not batch ELT |
 | Predictable source count, unpredictable volume | **Hevo Data** | Per-source pricing matches your shape |
 | > 100 sources or > 50 engineers | **Fivetran** | The MAR bill is now smaller than the team's time |
+| Source is PDFs / scans with **fixed templates** (your own forms, one vendor's invoices) | **AWS Textract** or **Azure Document Intelligence** | Cheap per page; structured-form support solves it |
+| Source is PDFs from **many different senders** (50 vendor invoice layouts) | **LLM extraction** (Claude / GPT-4o) with structured-output schema | Variable layouts kill template-based tools; LLMs handle them with no per-template work |
+| Source matches a Document AI **specialized parser** (W-2, receipt, ID, etc.) | **Google Document AI** | Returns clean structured fields without you writing extraction logic |
+| Sensitive documents that cannot leave the network, or > 100k pages/month | **PaddleOCR** or **docTR** self-hosted | OSS removes per-page cloud cost and keeps data on-prem |
+| Digital PDFs (text layer present), need clean structure not OCR | **Unstructured.io** or **Marker** | Layout parsing, not OCR, is the real problem |
 
 -----
 
@@ -139,6 +218,14 @@ Reach for managed (Fivetran / Stitch / Hevo) when one of these fires:
 
 Reach for CDC (DMS / Debezium / Estuary) only when freshness < 1 hour is a real product requirement, not a nice-to-have. CDC is a different operational discipline — it should be a deliberate Phase 2+ decision, not a Phase 1 experiment.
 
+For **document / OCR sources**, treat the extraction as a separate ingestion job that lands its structured output back in S3 as Parquet, so the rest of the stack (dbt, Metabase) sees it as a normal source. Default in 2026:
+
+- **Variable templates** (different senders, different layouts) → **LLM extraction** (Claude or GPT-4o) with a structured-output schema. Cheapest path to working extraction without per-template tuning.
+- **Fixed templates** (your own forms, one vendor) → **AWS Textract** or **Google Document AI** specialized parser.
+- **Sensitive / on-prem only** → **PaddleOCR** or **docTR** self-hosted on a GPU.
+
+Validate every extraction with downstream dbt tests (`not_null` on key fields, range checks on totals) — non-deterministic extractors slip occasionally and you want to catch it in CI, not in a dashboard.
+
 -----
 
 ## Anti-patterns
@@ -148,6 +235,9 @@ Reach for CDC (DMS / Debezium / Estuary) only when freshness < 1 hour is a real 
 - **Mixing 3+ ingestion tools "because each one is best at something."** Operational surface area compounds. Two tools is the practical maximum (one general-purpose ELT plus one specialist for an outlier source).
 - **Building a custom Singer tap for a SaaS that already has a verified dlt or Airbyte connector.** Always check the existing libraries first.
 - **Choosing CDC because the data team thinks it would be cool.** CDC needs an actual product reason.
+- **Reaching for an LLM to extract from one fixed-template PDF you receive monthly.** Textract or Document AI is 10× cheaper and deterministic.
+- **Reaching for Textract for 50 vendor invoice layouts.** You will spend more time on per-template extraction rules than the LLM call would cost.
+- **Storing only the extracted fields and discarding the original document.** Always keep the raw PDF/image in S3 — re-extraction is the answer when the schema changes.
 
 -----
 
@@ -159,3 +249,11 @@ Reach for CDC (DMS / Debezium / Estuary) only when freshness < 1 hour is a real 
 - [Fivetran connector catalog](https://www.fivetran.com/connectors)
 - [Sling docs](https://docs.slingdata.io)
 - [Singer spec](https://github.com/singer-io/getting-started)
+- [AWS Textract](https://docs.aws.amazon.com/textract/)
+- [Google Document AI](https://cloud.google.com/document-ai/docs)
+- [Azure Document Intelligence](https://learn.microsoft.com/azure/ai-services/document-intelligence/)
+- [Mindee API](https://developers.mindee.com)
+- [Anthropic — PDF support](https://docs.anthropic.com/en/docs/build-with-claude/pdf-support)
+- [PaddleOCR](https://github.com/PaddlePaddle/PaddleOCR)
+- [docTR](https://github.com/mindee/doctr)
+- [Unstructured.io](https://docs.unstructured.io)
