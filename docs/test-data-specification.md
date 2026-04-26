@@ -486,6 +486,199 @@ After the dbt pipeline runs, the data must resolve into clean models ready for B
   - `_ingested_at` (TIMESTAMP) — wall-clock time of write
   - `_schema_version` (INTEGER) — start at `1`; increment on breaking schema changes
 
+## Generated Parquet Schemas
+
+The following schemas represent the **actual Parquet column types** as written by the generator (seed=42, days=30). Because dirty-data transformations are applied per batch, column names and types **vary across daily files** within the same entity. The schemas below show a representative single-day file for each entity.
+
+> **Important for dbt staging models:** Column names must be normalized to `snake_case` before type casting. The dirty variants shown in the "Dirty Pattern" column appear unpredictably across different daily files.
+
+### `payments/subscriptions`
+
+File pattern: `payments/subscriptions/year=YYYY/month=MM/day=DD/payments_subscriptions_YYYYMMDD.parquet`
+
+| Column | Parquet Type | Nullable | Dirty Pattern |
+|---|---|---|---|
+| `subscription_id` | `large_string` | yes | May appear as `subscriptionId`, `SubscriptionID` |
+| `customer_id` | `large_string` | yes | May appear as `customerId`, `Customer_ID` |
+| `plan_id` | `large_string` | yes | Clean in most batches |
+| `plan_name` | `large_string` | yes | Clean |
+| `mrr_amount` | `double` | yes | Some batches: `string` (cents), `int64` (cents), or `string` (major units); see `mrrAmount`, `MRR_Amount` |
+| `currency` | `large_string` | yes | Contains invalid codes: `EURO`, `usd`, `euro`, `SEKr`, `Pounds`, `""` |
+| `status` | `large_string` | yes | `active`, `cancelled`, `paused` |
+| `billing_period_start` | `large_string` | yes | Mixed date formats: ISO, `MM/DD/YYYY`, `DD-MM-YYYY`, UNIX timestamp |
+| `billing_period_end` | `large_string` | yes | Mixed date formats |
+| `quantity` | `int64` | yes | Clean |
+| `created_at` | `large_string` | yes | Mixed date formats; may appear as `createdAt`, `Created_At` |
+| `_ingested_at` | `timestamp[us]` | yes | Clean; some rows backdated 45+ days for freshness testing |
+| `_schema_version` | `int64` | yes | Always `1` |
+
+### `payments/invoices`
+
+File pattern: `payments/invoices/year=YYYY/month=MM/day=DD/payments_invoices_YYYYMMDD.parquet`
+
+| Column | Parquet Type | Nullable | Dirty Pattern |
+|---|---|---|---|
+| `invoice_id` | `large_string` | yes | May appear as `invoiceId`, `Invoice_ID` |
+| `customer_id` | `large_string` | yes | May appear as `customerId`, `Customer_ID` |
+| `subscription_id` | `large_string` | yes | May appear as `subscriptionId`, `SubscriptionID`; NULL for one-off invoices |
+| `amount` | `double` | yes | Some batches: `string` or `int64` (cents) |
+| `currency` | `large_string` | yes | Invalid codes as above |
+| `invoice_date` | `large_string` | yes | Mixed date formats |
+| `due_date` | `large_string` | yes | Mixed date formats |
+| `paid_at` | `string` | yes | Mixed date formats; NULL if unpaid |
+| `status` | `large_string` | yes | `paid`, `open`, `void`, `uncollectible` |
+| `line_items_json` | `large_string` | yes | Embedded JSON array |
+| `created_at` | `large_string` | yes | Mixed date formats |
+| `_ingested_at` | `timestamp[us]` | yes | Some rows backdated |
+| `_schema_version` | `int64` | yes | Always `1` |
+
+### `lending/loan_applications`
+
+File pattern: `lending/loan_applications/year=YYYY/month=MM/day=DD/lending_loan_applications_YYYYMMDD.parquet`
+
+| Column | Parquet Type | Nullable | Dirty Pattern |
+|---|---|---|---|
+| `application_id` | `large_string` | yes | May appear as `applicationId`, `ApplicationID` |
+| `customer_id` | `large_string` | yes | Orphaned IDs for rejected/pending applications |
+| `company_name` | `large_string` | yes | Mixed casing |
+| `company_registration_number` | `large_string` | yes | Empty strings `""` instead of NULL |
+| `country_code` | `large_string` | yes | May appear as `countryCode`, `Country_Code` |
+| `industry` | `large_string` | yes | Clean |
+| `requested_amount` | `double` | yes | Some batches: `string` or `int64`; may appear as `facilityLimit` |
+| `currency` | `large_string` | yes | Invalid codes as above |
+| `application_date` | `large_string` | yes | Mixed date formats |
+| `status` | `large_string` | yes | `approved`, `rejected`, `pending`, `cancelled` |
+| `credit_score` | `int64` | yes | ~2 % contain out-of-range values: `999`, `0`, `-50`, `1000` |
+| `risk_rating` | `large_string` | yes | `low`, `medium`, `high`, or `N/A` |
+| `headcount_at_application` | `int64` | yes | Clean |
+| `valuation_at_application` | `int64` | yes | Clean |
+| `arr_at_application` | `int64` | yes | Clean |
+| `created_at` | `large_string` | yes | Mixed date formats |
+| `_ingested_at` | `timestamp[us]` | yes | Some rows backdated |
+| `_schema_version` | `int64` | yes | Always `1` |
+| `referral_source` | `large_string` | yes | **Schema drift:** only present in some batches |
+
+### `lending/credit_facilities`
+
+File pattern: `lending/credit_facilities/year=YYYY/month=MM/day=DD/lending_credit_facilities_YYYYMMDD.parquet`
+
+| Column | Parquet Type | Nullable | Dirty Pattern |
+|---|---|---|---|
+| `facility_id` | `large_string` | yes | May appear as `facilityId`, `Facility_ID` |
+| `application_id` | `null` | yes | Always NULL in current data; staging layer should join when available |
+| `customer_id` | `large_string` | yes | May appear as `customerId` |
+| `facility_limit` | `double` | yes | Some batches: `string` or `int64` (cents); ~1 % negative values; may appear as `facilityLimit` |
+| `currency` | `large_string` | yes | Invalid codes as above |
+| `approval_date` | `large_string` | yes | Mixed date formats |
+| `maturity_date` | `large_string` | yes | Mixed date formats |
+| `status` | `large_string` | yes | `active`, `closed`, `suspended` |
+| `interest_rate` | `double` | yes | Clean (decimal, e.g., `0.12` = 12 %) |
+| `repayment_schedule_json` | `large_string` | yes | Embedded JSON array |
+| `created_at` | `large_string` | yes | Mixed date formats |
+| `_ingested_at` | `timestamp[us]` | yes | Some rows backdated |
+| `_schema_version` | `int64` | yes | Always `1` |
+| `collateral_required` | — | — | **Schema drift:** only present in some batches as `bool` |
+
+### `lending/drawdowns`
+
+File pattern: `lending/drawdowns/year=YYYY/month=MM/day=DD/lending_drawdowns_YYYYMMDD.parquet`
+
+| Column | Parquet Type | Nullable | Dirty Pattern |
+|---|---|---|---|
+| `drawdown_id` | `large_string` | yes | ~2 % NULL; may appear as `drawdownId`, `Drawdown_ID`; ~4 % duplicate rows |
+| `facility_id` | `large_string` | yes | ~5 % orphaned (reference non-existent facility); may appear as `facilityId` |
+| `customer_id` | `large_string` | yes | May appear as `customerId` |
+| `amount` | `double` | yes | Some batches: `string` or `int64` (cents); ~3 % negative values |
+| `currency` | `large_string` | yes | Invalid codes as above |
+| `drawdown_date` | `large_string` | yes | Mixed date formats |
+| `purpose` | `large_string` | yes | `working_capital`, `expansion`, `marketing`, `hiring`, or NULL |
+| `status` | `large_string` | yes | `completed` (~75 %), `pending` (~23 %), `failed` (<2 %) |
+| `created_at` | `large_string` | yes | Mixed date formats |
+| `_ingested_at` | `timestamp[us]` | yes | Some rows backdated |
+| `_schema_version` | `int64` | yes | Always `1` |
+
+### `lending/repayments`
+
+File pattern: `lending/repayments/year=YYYY/month=DD/day=DD/lending_repayments_YYYYMMDD.parquet`
+
+| Column | Parquet Type | Nullable | Dirty Pattern |
+|---|---|---|---|
+| `repayment_id` | `large_string` | yes | May appear as `repaymentId`, `Repayment_ID` |
+| `drawdown_id` | `large_string` | yes | ~2 % orphaned (reference non-existent drawdown) |
+| `facility_id` | `large_string` | yes | May reference orphaned facility |
+| `customer_id` | `large_string` | yes | May appear as `customerId` |
+| `scheduled_amount` | `double` | yes | Some batches: `string` or `int64` (cents); may appear as `scheduledAmt` |
+| `actual_amount` | `double` | yes | NULL if not yet paid; some batches: `string` or `int64` |
+| `currency` | `large_string` | yes | Invalid codes as above |
+| `due_date` | `large_string` | yes | Mixed date formats |
+| `actual_date` | `string` | yes | Mixed date formats; NULL if unpaid |
+| `status` | `large_string` | yes | `paid` (~85 %), `scheduled`, `overdue`, `forgiven` |
+| `created_at` | `large_string` | yes | Mixed date formats |
+| `_ingested_at` | `timestamp[us]` | yes | Some rows backdated |
+| `_schema_version` | `int64` | yes | Always `1` |
+
+### `banking/fx_transactions`
+
+File pattern: `banking/fx_transactions/year=YYYY/month=MM/day=DD/banking_fx_transactions_YYYYMMDD.parquet`
+
+| Column | Parquet Type | Nullable | Dirty Pattern |
+|---|---|---|---|
+| `transaction_id` | `large_string` | yes | May appear as `transactionId`, `Transaction_ID` |
+| `customer_id` | `large_string` | yes | May appear as `customerId` |
+| `base_currency` | `large_string` | yes | Valid ISO codes in current data |
+| `quote_currency` | `large_string` | yes | Valid ISO codes in current data |
+| `base_amount` | `int64` | yes | Some batches: `string` (cents) or `double` (major units); may appear as `baseAmount` |
+| `quote_amount` | `double` | yes | NULL if not pre-computed |
+| `rate` | `double` | yes | ~5 % stored as inverse (`1/rate`) |
+| `rate_type` | `large_string` | yes | `spot` or `forward`; ~10 % NULL (schema drift) |
+| `transaction_date` | `large_string` | yes | Mixed date formats |
+| `counterparty_bank_bic` | `large_string` | yes | **Schema drift:** column may be absent in some batches |
+| `created_at` | `large_string` | yes | Mixed date formats |
+| `_ingested_at` | `timestamp[us]` | yes | Some rows backdated |
+| `_schema_version` | `int64` | yes | Always `1` |
+
+### `banking/account_balances`
+
+File pattern: `banking/account_balances/year=YYYY/month=MM/day=DD/banking_account_balances_YYYYMMDD.parquet`
+
+| Column | Parquet Type | Nullable | Dirty Pattern |
+|---|---|---|---|
+| `snapshot_id` | `large_string` | yes | May appear as `snapshotId`, `Snapshot_ID` |
+| `customer_id` | `large_string` | yes | ~2 % orphaned (reference unknown customers) |
+| `account_id` | `large_string` | yes | Format: `acct_{uuid_prefix}_{1-3}` |
+| `currency` | `large_string` | yes | Invalid codes as above |
+| `balance` | `int64` | yes | Some batches: `string` (cents) or `double` (major units) |
+| `snapshot_date` | `large_string` | yes | Mixed date formats; timezone offsets may vary |
+| `account_type` | `large_string` | yes | `operating`, `reserve`, `fx` |
+| `created_at` | `large_string` | yes | Mixed date formats |
+| `_ingested_at` | `timestamp[us]` | yes | Some rows backdated |
+| `_schema_version` | `int64` | yes | Always `1` |
+
+### `crm/company_metrics`
+
+File pattern: `crm/company_metrics/year=YYYY/month=MM/day=DD/crm_company_metrics_YYYYMMDD.parquet`
+
+| Column | Parquet Type | Nullable | Dirty Pattern |
+|---|---|---|---|
+| `metric_id` | `large_string` | yes | May appear as `metricId`, `Metric_ID` |
+| `customer_id` | `large_string` | yes | May appear as `customerId` |
+| `metric_date` | `large_string` | yes | Mixed date formats |
+| `headcount` | `int64` | yes | Clean |
+| `valuation` | `int64` | yes | Some batches: `string` or `double` |
+| `arr_reported` | `int64` | yes | May appear as `ARR_Reported`, `arrReported`; ~30 % differ from computed ARR by ±15 % |
+| `created_at` | `large_string` | yes | Mixed date formats |
+| `_ingested_at` | `timestamp[us]` | yes | Some rows backdated |
+| `_schema_version` | `int64` | yes | Always `1` |
+
+### Key Observations for dbt Staging Models
+
+1. **All `large_string` date columns** must be parsed with a format-aware function that tries `YYYY-MM-DD`, `MM/DD/YYYY`, `DD-MM-YYYY`, `DD/MM/YYYY`, and UNIX timestamps.
+2. **Mixed monetary types** across daily batches: a single column may be `double` in one file, `int64` (cents) in another, or `large_string` in a third. Staging models must cast all variants to `DECIMAL(18,2)` in major currency units.
+3. **Column name casing** varies per file. The staging layer must normalize `customerId` → `customer_id`, `facilityId` → `facility_id`, `ARR_Reported` → `arr_reported`, etc.
+4. **Schema drift columns** (`collateral_required`, `referral_source`) appear only in some batches. Staging models should `COALESCE` or default them to `NULL` when absent.
+5. **`_ingested_at`** is a true `timestamp[us]` and can be trusted for deduplication (keep latest). All other date columns are `large_string` and require parsing.
+6. **`application_id`** in `credit_facilities` is typed as `null` because all values are `None`. The staging model should still define the column as `STRING` nullable.
+
 ## Generating the Data
 
 A Python script (using `pyarrow` + `Faker`) will generate the raw files. The generator must accept a "dirtiness seed" so the same reproducible anomalies are injected every CI run. The generation script lives in `ingestion/scripts/generate_dummy_data.py`.
