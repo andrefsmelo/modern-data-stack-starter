@@ -31,3 +31,7 @@ transformation/dbt/logs/
 transformation/dbt/dev.duckdb
 transformation/dbt/prod.duckdb
 transformation/dbt/.user.yml
+
+# Metabase
+.metabase-session-token
+plugins/*.jar
