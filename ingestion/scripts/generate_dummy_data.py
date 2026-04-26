@@ -107,14 +107,17 @@ class DirtyGenerator:
         return clean_currency
 
     def dirty_date(self, dt: datetime, dirty_prob: float = 0.06) -> str:
+        if self._chance(0.01):
+            invalid_month = self.rng.randint(13, 23)
+            invalid_day = self.rng.randint(32, 45)
+            return f"{invalid_month}/{invalid_day}/{dt.year}"
         if self._chance(dirty_prob):
             fmt = self.rng.choice(DIRTY_DATE_FORMATS)
             return dt.strftime(fmt)
         if self._chance(0.03):
-            # unix timestamp as string
             return str(int(dt.timestamp()))
         if self._chance(0.02):
-            return dt.strftime("%m/%d/%Y")  # common US-style mistake
+            return dt.strftime("%m/%d/%Y")
         return dt.isoformat()
 
     def dirty_amount_type(self, amount: float, dirty_prob: float = 0.07):
@@ -354,8 +357,10 @@ def generate_subscriptions(dg: DirtyGenerator, customers: List[Dict], days: int,
     return pd.DataFrame(rows)
 
 
-def generate_invoices(dg: DirtyGenerator, customers: List[Dict], days: int, start: datetime) -> pd.DataFrame:
+def generate_invoices(dg: DirtyGenerator, customers: List[Dict], days: int, start: datetime, sub_ids: Optional[List[str]] = None) -> pd.DataFrame:
     rows = []
+    if sub_ids is None:
+        sub_ids = []
     for cust in customers:
         n_inv = int(dg.np_rng.integers(30, 90))  # ~60 per customer on average
         amount_per_inv = cust["target_arr"] / 12 / n_inv
@@ -363,7 +368,12 @@ def generate_invoices(dg: DirtyGenerator, customers: List[Dict], days: int, star
             inv_date = start + timedelta(days=int(dg.np_rng.integers(0, days)))
             due = inv_date + timedelta(days=14)
             paid = inv_date + timedelta(days=int(dg.np_rng.integers(1, 20))) if dg._chance(0.85) else None
-            status = "paid" if paid else dg.rng.choice(["open", "uncollectible"])
+            if paid is None and dg._chance(0.05):
+                status = "void"
+            elif paid is None:
+                status = dg.rng.choice(["open", "uncollectible"])
+            else:
+                status = "paid"
             line_items = json.dumps([{
                 "description": dg.fake.bs(),
                 "amount": round(amount_per_inv * dg.np_rng.uniform(0.8, 1.2), 2),
@@ -372,7 +382,7 @@ def generate_invoices(dg: DirtyGenerator, customers: List[Dict], days: int, star
             rows.append({
                 "invoice_id": dg.uuid(),
                 "customer_id": cust["customer_id"],
-                "subscription_id": dg.uuid() if dg._chance(0.8) else None,
+                "subscription_id": dg.rng.choice(sub_ids) if sub_ids and dg._chance(0.80) else None,
                 "amount": round(amount_per_inv * dg.np_rng.uniform(0.8, 1.2), 2),
                 "currency": dg.dirty_currency(cust["currency"]),
                 "invoice_date": inv_date,
@@ -441,8 +451,11 @@ def generate_loan_applications(dg: DirtyGenerator, customers: List[Dict], days: 
     return pd.DataFrame(rows)
 
 
-def generate_credit_facilities(dg: DirtyGenerator, customers: List[Dict], days: int, start: datetime) -> pd.DataFrame:
+def generate_credit_facilities(dg: DirtyGenerator, customers: List[Dict], days: int, start: datetime, approved_app_ids: Optional[List[str]] = None) -> pd.DataFrame:
     rows = []
+    if approved_app_ids is None:
+        approved_app_ids = []
+    app_pool = list(approved_app_ids)
     for cust in customers:
         n_facilities = dg.rng.choices([1, 2, 3], weights=[0.75, 0.20, 0.05])[0]
         for f_idx in range(n_facilities):
@@ -457,9 +470,12 @@ def generate_credit_facilities(dg: DirtyGenerator, customers: List[Dict], days: 
                 }
                 for i in range(12)
             ]
+            application_id = None
+            if app_pool and dg._chance(0.80):
+                application_id = app_pool.pop(dg.rng.randint(0, len(app_pool) - 1))
             rows.append({
                 "facility_id": dg.uuid(),
-                "application_id": None,  # will link in clean pipeline; some orphans
+                "application_id": application_id,
                 "customer_id": cust["customer_id"],
                 "facility_limit": dg.dirty_negative(round(limit, 2), prob=0.01),
                 "currency": dg.dirty_currency(cust["currency"]),
@@ -496,7 +512,7 @@ def generate_drawdowns(dg: DirtyGenerator, customers: List[Dict], facilities: pd
                 "currency": dg.dirty_currency(cust["currency"]),
                 "drawdown_date": dd_date,
                 "purpose": dg.rng.choice(["working_capital", "expansion", "marketing", "hiring", None]),
-                "status": dg.rng.choice(["completed", "completed", "completed", "pending"]),
+                "status": dg.rng.choice(["completed", "completed", "completed", "pending", "failed"]),
                 "created_at": dd_date,
                 "_ingested_at": start + timedelta(days=int(dg.np_rng.integers(0, days))),
                 "_schema_version": 1,
@@ -514,7 +530,7 @@ def generate_repayments(dg: DirtyGenerator, drawdowns: pd.DataFrame, days: int, 
         base_due = dd["drawdown_date"] + timedelta(days=30)
         for i in range(n_repayments):
             due = base_due + timedelta(days=30 * i)
-            amount = float(dd["amount"]) if isinstance(dd["amount"], (int, float)) else float(dd["amount"])
+            amount = abs(float(dd["amount"])) if isinstance(dd["amount"], (int, float)) else abs(float(dd["amount"]))
             scheduled = amount / n_repayments * dg.np_rng.uniform(0.9, 1.1)
             actual = scheduled if dg._chance(0.85) else None
             actual_date = due + timedelta(days=int(dg.np_rng.integers(-5, 10))) if actual else None
@@ -645,7 +661,7 @@ def generate_company_metrics(dg: DirtyGenerator, customers: List[Dict], days: in
 
 
 # ---------------------------------------------------------------------------
-# Dirty transformations on DataFrames
+# Per-day dirty transformations
 # ---------------------------------------------------------------------------
 
 def apply_date_dirtiness(dg: DirtyGenerator, df: pd.DataFrame, cols: List[str]) -> pd.DataFrame:
@@ -656,26 +672,98 @@ def apply_date_dirtiness(dg: DirtyGenerator, df: pd.DataFrame, cols: List[str]) 
     return df
 
 
-def apply_column_name_dirtiness(dg: DirtyGenerator, df: pd.DataFrame) -> pd.DataFrame:
-    """Rename a subset of columns to dirty variants."""
-    rename_map = {}
-    for col in df.columns:
-        new_col = dg.dirty_column_name(col)
-        if new_col != col:
-            rename_map[col] = new_col
-    if rename_map:
-        df = df.rename(columns=rename_map)
+def apply_dirty_transforms_per_day(dg: DirtyGenerator, df: pd.DataFrame, entity: str,
+                                    date_cols: List[str], amount_cols: List[str],
+                                    apply_column_dirtiness: bool = True) -> pd.DataFrame:
+    """Apply dirty transformations per day-group so that schema drift, column
+    naming, and amount types vary *across daily batches* rather than uniformly
+    across the entire dataset.
+
+    Column renaming, schema drift, and amount type coercion are applied PER-DAY
+    directly into each row's data dict at write time, so different days can have
+    different column names without DataFrame concat conflicts.
+    """
+    if df.empty:
+        return df
+
+    df["_day_key"] = pd.to_datetime(df["_ingested_at"]).dt.date
+
+    for col in date_cols:
+        if col in df.columns:
+            df[col] = df[col].apply(lambda x: dg.dirty_date(x) if pd.notna(x) else x)
+
+    df["_day_index"] = 0
+    day_groups = df.groupby("_day_key")
+    day_idx = 0
+    for day_key, _ in day_groups:
+        mask = df["_day_key"] == day_key
+        df.loc[mask, "_day_index"] = day_idx
+        day_idx += 1
+
     return df
 
 
-def apply_schema_drift(dg: DirtyGenerator, df: pd.DataFrame, entity: str) -> pd.DataFrame:
+def apply_column_name_per_row(col_name: str, day_key, entity: str, day_index: int) -> str:
+    per_day_rng = random.Random(hash((day_key, entity, day_index, "colname")))
+
+    variant_map = {
+        "customer_id": ["customerId", "Customer_ID"],
+        "subscription_id": ["subscriptionId", "SubscriptionID"],
+        "invoice_id": ["invoiceId", "Invoice_ID"],
+        "application_id": ["applicationId", "ApplicationID"],
+        "facility_id": ["facilityId", "Facility_ID"],
+        "drawdown_id": ["drawdownId", "Drawdown_ID"],
+        "repayment_id": ["repaymentId", "Repayment_ID"],
+        "transaction_id": ["transactionId", "Transaction_ID"],
+        "snapshot_id": ["snapshotId", "Snapshot_ID"],
+        "metric_id": ["metricId", "Metric_ID"],
+        "mrr_amount": ["mrrAmount", "MRR_Amount"],
+        "facility_limit": ["facilityLimit", "Facility_Limit"],
+        "drawdown_amount": ["drawdownAmt", "Drawdown_Amount"],
+        "repayment_amount": ["repaymentAmt", "Repayment_Amount"],
+        "created_at": ["createdAt", "Created_At"],
+        "company_name": ["companyName", "Company_Name"],
+        "country_code": ["countryCode", "Country_Code"],
+        "arr_reported": ["arrReported", "ARR_Reported"],
+        "valuation": ["Valuation", "valuation_amt"],
+    }
+    if col_name in variant_map:
+        n_dirty = per_day_rng.choices([0, 1, 2], weights=[0.70, 0.25, 0.05])[0]
+        if n_dirty > 0:
+            return per_day_rng.choice(variant_map[col_name])
+    return col_name
+
+
+def apply_schema_drift_per_row(data: dict, entity: str, day_key, day_index: int, n_rows: int) -> dict:
+    per_day_rng = random.Random(hash((day_key, entity, day_index, "schema")))
+    data = dict(data)
     if entity == "credit_facilities":
-        df = dg.dirty_schema_drift_add(df, "collateral_required", False, add_prob=0.10)
+        if per_day_rng.random() < 0.25:
+            data["collateral_required"] = per_day_rng.choice([True, False])
     if entity == "fx_transactions":
-        df = dg.dirty_schema_drift_drop(df, "counterparty_bank_bic", drop_prob=0.08)
+        if per_day_rng.random() < 0.20:
+            data.pop("counterparty_bank_bic", None)
     if entity == "loan_applications":
-        df = dg.dirty_schema_drift_add(df, "referral_source", dg.fake.word(), add_prob=0.08)
-    return df
+        if per_day_rng.random() < 0.25:
+            data["referral_source"] = Faker().word()
+    return data
+
+
+def apply_amount_type_per_row(value, col_name: str, day_key, entity: str, day_index: int):
+    per_day_rng = random.Random(hash((day_key, entity, day_index, "amount", col_name)))
+    if per_day_rng.random() > 0.15:
+        return value
+    mode = per_day_rng.choice(["string_cents", "string_major", "int_cents"])
+    try:
+        fval = float(value)
+        if mode == "string_cents":
+            return str(int(fval * 100))
+        elif mode == "string_major":
+            return str(round(fval, 2))
+        elif mode == "int_cents":
+            return int(fval * 100)
+    except (ValueError, TypeError):
+        return value
 
 
 def apply_stale_partitions(dg: DirtyGenerator, df: pd.DataFrame, stale_prob: float = 0.05, stale_days: int = 45) -> pd.DataFrame:
@@ -713,23 +801,33 @@ def write_partitioned(df: pd.DataFrame, entity: str, output_dir: str) -> None:
         pq.write_table(table, out_file, compression="snappy")
 
 
-def write_raw_events(df: pd.DataFrame, source: str, entity: str, output_dir: str) -> None:
+def write_raw_events(df: pd.DataFrame, source: str, entity: str, output_dir: str,
+                     amount_cols: List[str] = None) -> None:
     """Write entity data in raw events format: one row per record with
     _source, _entity, _ingested_at, _schema_version, _batch_id, and data (JSON).
 
-    This mirrors how Airbyte/dlt/Fivetran land API data: a single unified
-    table where the entity-specific columns are packed into a JSON `data`
-    column and ingestion metadata lives in envelope columns.
+    Per-day dirty transforms (column naming, schema drift, amount types) are
+    applied directly to the JSON data dict so that different daily batches can
+    have different column names and schemas without DataFrame merge conflicts.
     """
     if df.empty:
         return
+    if amount_cols is None:
+        amount_cols = []
 
-    meta_cols = ["_ingested_at", "_schema_version"]
+    meta_cols = {"_ingested_at", "_schema_version", "_day_key", "_day_index"}
     data_cols = [c for c in df.columns if c not in meta_cols]
 
     rows = []
     for _, row in df.iterrows():
         record = {}
+        day_key = row.get("_day_key", None)
+        day_index = row.get("_day_index", 0)
+        if hasattr(day_key, "isoformat"):
+            day_key = day_key.isoformat()
+        elif day_key is not None:
+            day_key = str(day_key)
+
         for col in data_cols:
             val = row[col]
             if pd.isna(val):
@@ -742,6 +840,25 @@ def write_raw_events(df: pd.DataFrame, source: str, entity: str, output_dir: str
                 record[col] = float(val)
             else:
                 record[col] = val
+
+        # Apply per-day column name dirtiness
+        if day_key is not None:
+            renamed_record = {}
+            for k, v in record.items():
+                new_key = apply_column_name_per_row(k, day_key, entity, int(day_index))
+                renamed_record[new_key] = v
+            record = renamed_record
+
+            # Apply per-day schema drift
+            record = apply_schema_drift_per_row(record, entity, day_key, int(day_index), len(df))
+
+            # Apply per-day amount type coercion
+            for col in amount_cols:
+                canonical = col  # amounts use canonical names in the DataFrame
+                if canonical in record and record[canonical] is not None:
+                    record[canonical] = apply_amount_type_per_row(
+                        record[canonical], canonical, day_key, entity, int(day_index)
+                    )
 
         batch_ts = row["_ingested_at"]
         if isinstance(batch_ts, pd.Timestamp):
@@ -810,15 +927,17 @@ Output formats:
 
     print("Generating subscriptions...")
     subs = generate_subscriptions(dg, customers, args.days, start)
+    sub_ids = subs["subscription_id"].tolist()
 
     print("Generating invoices...")
-    invs = generate_invoices(dg, customers, args.days, start)
+    invs = generate_invoices(dg, customers, args.days, start, sub_ids=sub_ids)
 
     print("Generating loan applications...")
     apps = generate_loan_applications(dg, customers, args.days, start)
+    approved_app_ids = apps.loc[apps["status"] == "approved", "application_id"].tolist()
 
     print("Generating credit facilities...")
-    facs = generate_credit_facilities(dg, customers, args.days, start)
+    facs = generate_credit_facilities(dg, customers, args.days, start, approved_app_ids=approved_app_ids)
 
     print("Generating drawdowns...")
     dds = generate_drawdowns(dg, customers, facs, args.days, start)
@@ -835,47 +954,43 @@ Output formats:
     print("Generating company metrics...")
     metrics = generate_company_metrics(dg, customers, args.days, start)
 
-    # Apply dirty transformations after all dependent entities are generated
-    print("Applying dirty transformations...")
-    subs = apply_date_dirtiness(dg, subs, ["billing_period_start", "billing_period_end", "created_at"])
-    subs = apply_column_name_dirtiness(dg, subs)
+    # Apply dirty transformations per day-group for batch variation
+    print("Applying dirty transformations (per-day)...")
+    subs = apply_dirty_transforms_per_day(dg, subs, "subscriptions",
+                                          date_cols=["billing_period_start", "billing_period_end", "created_at"],
+                                          amount_cols=["mrr_amount"])
 
-    invs = apply_date_dirtiness(dg, invs, ["invoice_date", "due_date", "paid_at", "created_at"])
-    invs = apply_column_name_dirtiness(dg, invs)
+    invs = apply_dirty_transforms_per_day(dg, invs, "invoices",
+                                          date_cols=["invoice_date", "due_date", "paid_at", "created_at"],
+                                          amount_cols=["amount"])
 
-    apps = apply_date_dirtiness(dg, apps, ["application_date", "created_at"])
-    apps = apply_column_name_dirtiness(dg, apps)
-    apps = apply_schema_drift(dg, apps, "loan_applications")
-    apps = dg.dirty_amount_column(apps, "requested_amount")
+    apps = apply_dirty_transforms_per_day(dg, apps, "loan_applications",
+                                           date_cols=["application_date", "created_at"],
+                                           amount_cols=["requested_amount"])
 
-    facs = apply_date_dirtiness(dg, facs, ["approval_date", "maturity_date", "created_at"])
-    facs = apply_column_name_dirtiness(dg, facs)
-    facs = apply_schema_drift(dg, facs, "credit_facilities")
-    facs = dg.dirty_amount_column(facs, "facility_limit")
+    facs = apply_dirty_transforms_per_day(dg, facs, "credit_facilities",
+                                           date_cols=["approval_date", "maturity_date", "created_at"],
+                                           amount_cols=["facility_limit"])
 
-    dds = apply_date_dirtiness(dg, dds, ["drawdown_date", "created_at"])
-    dds = apply_column_name_dirtiness(dg, dds)
-    dds = dg.dirty_amount_column(dds, "amount")
+    dds = apply_dirty_transforms_per_day(dg, dds, "drawdowns",
+                                          date_cols=["drawdown_date", "created_at"],
+                                          amount_cols=["amount"])
 
-    reps = apply_date_dirtiness(dg, reps, ["due_date", "actual_date", "created_at"])
-    reps = apply_column_name_dirtiness(dg, reps)
-    reps = dg.dirty_amount_column(reps, "scheduled_amount")
-    reps = dg.dirty_amount_column(reps, "actual_amount")
+    reps = apply_dirty_transforms_per_day(dg, reps, "repayments",
+                                           date_cols=["due_date", "actual_date", "created_at"],
+                                           amount_cols=["scheduled_amount", "actual_amount"])
 
-    fxs = apply_date_dirtiness(dg, fxs, ["transaction_date", "created_at"])
-    fxs = apply_column_name_dirtiness(dg, fxs)
-    fxs = apply_schema_drift(dg, fxs, "fx_transactions")
-    fxs = dg.dirty_amount_column(fxs, "base_amount")
-    fxs = dg.dirty_amount_column(fxs, "quote_amount")
+    fxs = apply_dirty_transforms_per_day(dg, fxs, "fx_transactions",
+                                          date_cols=["transaction_date", "created_at"],
+                                          amount_cols=["base_amount", "quote_amount"])
 
-    bals = apply_date_dirtiness(dg, bals, ["snapshot_date", "created_at"])
-    bals = apply_column_name_dirtiness(dg, bals)
-    bals = dg.dirty_amount_column(bals, "balance")
+    bals = apply_dirty_transforms_per_day(dg, bals, "account_balances",
+                                           date_cols=["snapshot_date", "created_at"],
+                                           amount_cols=["balance"])
 
-    metrics = apply_date_dirtiness(dg, metrics, ["metric_date", "created_at"])
-    metrics = apply_column_name_dirtiness(dg, metrics)
-    metrics = dg.dirty_amount_column(metrics, "valuation")
-    metrics = dg.dirty_amount_column(metrics, "arr_reported")
+    metrics = apply_dirty_transforms_per_day(dg, metrics, "company_metrics",
+                                              date_cols=["metric_date", "created_at"],
+                                              amount_cols=["valuation", "arr_reported"])
 
     # Create stale partitions (~5% of rows backdated 45+ days)
     print("Creating stale partitions...")
@@ -890,6 +1005,18 @@ Output formats:
     metrics = apply_stale_partitions(dg, metrics)
 
     # Write output
+    entity_amount_cols = {
+        "subscriptions": ["mrr_amount"],
+        "invoices": ["amount"],
+        "loan_applications": ["requested_amount"],
+        "credit_facilities": ["facility_limit"],
+        "drawdowns": ["amount"],
+        "repayments": ["scheduled_amount", "actual_amount"],
+        "fx_transactions": ["base_amount", "quote_amount"],
+        "account_balances": ["balance"],
+        "company_metrics": ["valuation", "arr_reported"],
+    }
+
     entities = [
         (subs, "payments", "subscriptions"),
         (invs, "payments", "invoices"),
@@ -908,7 +1035,8 @@ Output formats:
         if args.output_format in ("flat", "both"):
             write_partitioned(df, entity_path, args.output_dir)
         if args.output_format in ("raw_events", "both"):
-            write_raw_events(df, source, entity, args.output_dir)
+            write_raw_events(df, source, entity, args.output_dir,
+                             amount_cols=entity_amount_cols.get(entity, []))
 
     # Summary
     print("\nDone. Generated:")
