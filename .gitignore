@@ -23,3 +23,11 @@ Thumbs.db
 # Environment
 .env
 .env.local
+!.env.example
+
+# dbt
+transformation/dbt/target/
+transformation/dbt/logs/
+transformation/dbt/dev.duckdb
+transformation/dbt/prod.duckdb
+transformation/dbt/.user.yml

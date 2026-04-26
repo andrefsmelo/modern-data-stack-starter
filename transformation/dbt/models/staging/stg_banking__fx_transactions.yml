@@ -1,0 +1,66 @@
+version: 2
+
+models:
+  - name: stg_banking__fx_transactions
+    description: "Cleansed FX transaction events from banking source."
+    columns:
+      - name: transaction_id
+        description: "Primary key — deduplicated by latest _ingested_at"
+        tests:
+          - unique:
+              config:
+                severity: error
+          - not_null:
+              config:
+                severity: error
+
+      - name: customer_id
+        description: "Foreign key to dim_customers"
+        tests:
+          - not_null:
+              config:
+                severity: error
+
+      - name: base_currency
+        description: "ISO 4217 currency code for the base side (cleansed; invalid codes set to NULL)"
+        tests:
+          - accepted_values:
+              values: ["GBP", "EUR", "CHF", "SEK", "NOK", "DKK", "ISK", "USD", "CAD"]
+              config:
+                severity: warn
+
+      - name: quote_currency
+        description: "ISO 4217 currency code for the quote side (cleansed; invalid codes set to NULL)"
+        tests:
+          - accepted_values:
+              values: ["GBP", "EUR", "CHF", "SEK", "NOK", "DKK", "ISK", "USD", "CAD"]
+              config:
+                severity: warn
+
+      - name: base_amount
+        description: "Amount in base currency (DECIMAL)"
+        tests:
+          - not_null:
+              config:
+                severity: warn
+
+      - name: quote_amount
+        description: "Amount in quote currency (DECIMAL, nullable)"
+
+      - name: rate
+        description: "Exchange rate applied (DOUBLE)"
+
+      - name: rate_type
+        description: "Type of exchange rate (nullable)"
+
+      - name: transaction_date
+        description: "Date the FX transaction was executed (parsed to TIMESTAMP)"
+
+      - name: counterparty_bank_bic
+        description: "BIC code of counterparty bank (schema-drift column; may be NULL)"
+
+      - name: _ingested_at
+        description: "Wall-clock ingestion timestamp from raw events"
+
+      - name: _schema_version
+        description: "Schema version from raw events"

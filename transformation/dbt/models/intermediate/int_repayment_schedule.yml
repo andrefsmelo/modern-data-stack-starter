@@ -1,0 +1,39 @@
+version: 2
+
+models:
+  - name: int_repayment_schedule
+    description: "One row per scheduled repayment installment, exploded from the JSON repayment_schedule_json column in credit facilities."
+    columns:
+      - name: facility_id
+        description: "Foreign key to stg_lending__credit_facilities"
+        tests:
+          - not_null:
+              config:
+                severity: error
+          - relationships:
+              to: ref('stg_lending__credit_facilities')
+              field: facility_id
+              config:
+                severity: warn
+
+      - name: customer_id
+        description: "Foreign key to the customer dimension"
+        tests:
+          - not_null:
+              config:
+                severity: error
+
+      - name: currency
+        description: "ISO 4217 currency code inherited from the facility"
+
+      - name: installment_due_date
+        description: "Due date of the repayment installment parsed from JSON"
+
+      - name: installment_amount
+        description: "Scheduled repayment amount in the facility currency (DECIMAL)"
+
+tests:
+  - dbt_utils.expression_is_true:
+      expression: "installment_amount > 0"
+      config:
+        severity: warn

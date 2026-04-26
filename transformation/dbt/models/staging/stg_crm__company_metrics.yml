@@ -1,0 +1,48 @@
+version: 2
+
+models:
+  - name: stg_crm__company_metrics
+    description: "Cleansed company metric events from CRM source."
+    columns:
+      - name: metric_id
+        description: "Primary key — deduplicated by latest _ingested_at"
+        tests:
+          - unique:
+              config:
+                severity: error
+          - not_null:
+              config:
+                severity: error
+
+      - name: customer_id
+        description: "Foreign key to dim_customers"
+        tests:
+          - not_null:
+              config:
+                severity: error
+
+      - name: metric_date
+        description: "Date the metric was recorded (parsed to TIMESTAMP)"
+
+      - name: headcount
+        description: "Company headcount at metric date (BIGINT)"
+
+      - name: valuation
+        description: "Company valuation at metric date (DECIMAL)"
+        tests:
+          - not_null:
+              config:
+                severity: warn
+
+      - name: arr_reported
+        description: "Reported annual recurring revenue at metric date (DECIMAL)"
+        tests:
+          - not_null:
+              config:
+                severity: warn
+
+      - name: _ingested_at
+        description: "Wall-clock ingestion timestamp from raw events"
+
+      - name: _schema_version
+        description: "Schema version from raw events"

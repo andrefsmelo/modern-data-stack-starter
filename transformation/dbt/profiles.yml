@@ -1,0 +1,30 @@
+modern_data_stack:
+  target: dev
+  outputs:
+    dev:
+      type: duckdb
+      path: "{{ env_var('DBT_DUCKDB_PATH', 'dev.duckdb') }}"
+      threads: 4
+      extensions:
+        - httpfs
+        - parquet
+      settings:
+        s3_access_key_id: "{{ env_var('AWS_ACCESS_KEY_ID', '') }}"
+        s3_secret_access_key: "{{ env_var('AWS_SECRET_ACCESS_KEY', '') }}"
+        s3_region: "{{ env_var('AWS_REGION', 'eu-west-1') }}"
+      extras:
+        s3: true
+
+    prod:
+      type: duckdb
+      path: "{{ env_var('DBT_DUCKDB_PATH', 'prod.duckdb') }}"
+      threads: 4
+      extensions:
+        - httpfs
+        - parquet
+      settings:
+        s3_access_key_id: "{{ env_var('AWS_ACCESS_KEY_ID', '') }}"
+        s3_secret_access_key: "{{ env_var('AWS_SECRET_ACCESS_KEY', '') }}"
+        s3_region: "{{ env_var('AWS_REGION', 'eu-west-1') }}"
+      extras:
+        s3: true

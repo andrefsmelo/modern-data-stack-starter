@@ -1,0 +1,73 @@
+version: 2
+
+models:
+  - name: fct_repayments
+    description: "One row per repayment event comparing scheduled vs actual amounts and dates, with an orphan flag for referential integrity."
+    columns:
+      - name: repayment_id
+        description: "Primary key — unique repayment identifier"
+        tests:
+          - unique:
+              config:
+                severity: error
+          - not_null:
+              config:
+                severity: error
+
+      - name: drawdown_id
+        description: "Foreign key to the associated drawdown"
+        tests:
+          - not_null:
+              config:
+                severity: error
+
+      - name: facility_id
+        description: "Foreign key to dim_credit_facilities"
+        tests:
+          - not_null:
+              config:
+                severity: error
+          - relationships:
+              to: ref('dim_credit_facilities')
+              field: facility_id
+              config:
+                severity: warn
+
+      - name: customer_id
+        description: "Foreign key to dim_customers"
+        tests:
+          - not_null:
+              config:
+                severity: error
+          - relationships:
+              to: ref('dim_customers')
+              field: customer_id
+              config:
+                severity: warn
+
+      - name: scheduled_amount
+        description: "Originally scheduled repayment amount (DECIMAL)"
+
+      - name: actual_amount
+        description: "Actual repayment amount (DECIMAL)"
+
+      - name: currency
+        description: "ISO 4217 currency code of the repayment"
+
+      - name: due_date
+        description: "Scheduled due date for the repayment"
+
+      - name: actual_date
+        description: "Actual date the repayment was made (NULL if not yet paid)"
+
+      - name: scheduled_vs_actual_lag_days
+        description: "Difference in days between actual_date and due_date; NULL when actual_date is missing"
+
+      - name: status
+        description: "Repayment status"
+
+      - name: is_orphaned
+        description: "TRUE when facility_id not in dim_credit_facilities or customer_id not in dim_customers"
+        tests:
+          - accepted_values:
+              values: [true, false]
