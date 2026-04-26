@@ -8,6 +8,7 @@ This file helps AI agents navigate the repository quickly.
 - **[docs/ingestion.md](docs/ingestion.md)** — ingestion-tool landscape (managed, OSS, code-first, CDC, OCR / document AI), pros/cons, and the decision matrix for picking one. Use when reasoning about ingestion choices.
 - **[docs/orchestration.md](docs/orchestration.md)** — ephemeral compute pattern, GitHub Actions pricing math, escape hatches (Lambda, Fargate, Modal, Cloud Run), and orchestration anti-patterns. Use when reasoning about how a job runs, not what it does.
 - **[docs/evolution-triggers.md](docs/evolution-triggers.md)** — per-layer operational signals and the recommended next move when each fires (use this when reasoning about scaling decisions).
+- **[docs/test-data-specification.md](docs/test-data-specification.md)** — schemas, dirty-data rules, and partition layout for the synthetic fintech dataset produced by `ingestion/scripts/generate_dummy_data.py`.
 - **[docs/decisions/](docs/decisions/)** — Architecture Decision Records. Start with `0001-duckdb-execution.md`.
 
 ## Project Layout
@@ -19,11 +20,12 @@ modern-data-stack-starter/
 ├── orchestration/        # GitHub Actions workflows (cron schedules, dbt jobs)
 ├── visualization/        # Metabase dashboard exports and configs
 ├── docs/
-│   ├── architecture.md       # ← full architecture (start here)
-│   ├── ingestion.md          # ← ingestion-tool landscape and decision matrix
-│   ├── orchestration.md      # ← ephemeral compute, GH Actions pricing, escape hatches
-│   ├── evolution-triggers.md # ← when to scale each layer
-│   └── decisions/            # Architecture Decision Records (ADRs)
+│   ├── architecture.md             # ← full architecture (start here)
+│   ├── ingestion.md                # ← ingestion-tool landscape and decision matrix
+│   ├── orchestration.md            # ← ephemeral compute, GH Actions pricing, escape hatches
+│   ├── evolution-triggers.md       # ← when to scale each layer
+│   ├── test-data-specification.md  # ← synthetic fintech dataset spec
+│   └── decisions/                  # Architecture Decision Records (ADRs)
 └── README.md             # Quick-start and setup instructions
 ```
 
