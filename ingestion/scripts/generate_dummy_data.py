@@ -695,6 +695,7 @@ def apply_stale_partitions(dg: DirtyGenerator, df: pd.DataFrame, stale_prob: flo
 # ---------------------------------------------------------------------------
 
 def write_partitioned(df: pd.DataFrame, entity: str, output_dir: str) -> None:
+    """Write entity data as flat Parquet files (legacy format)."""
     if df.empty:
         return
     df["year"] = pd.to_datetime(df["_ingested_at"]).dt.year
@@ -712,13 +713,93 @@ def write_partitioned(df: pd.DataFrame, entity: str, output_dir: str) -> None:
         pq.write_table(table, out_file, compression="snappy")
 
 
+def write_raw_events(df: pd.DataFrame, source: str, entity: str, output_dir: str) -> None:
+    """Write entity data in raw events format: one row per record with
+    _source, _entity, _ingested_at, _schema_version, _batch_id, and data (JSON).
+
+    This mirrors how Airbyte/dlt/Fivetran land API data: a single unified
+    table where the entity-specific columns are packed into a JSON `data`
+    column and ingestion metadata lives in envelope columns.
+    """
+    if df.empty:
+        return
+
+    meta_cols = ["_ingested_at", "_schema_version"]
+    data_cols = [c for c in df.columns if c not in meta_cols]
+
+    rows = []
+    for _, row in df.iterrows():
+        record = {}
+        for col in data_cols:
+            val = row[col]
+            if pd.isna(val):
+                record[col] = None
+            elif isinstance(val, pd.Timestamp):
+                record[col] = val.isoformat()
+            elif isinstance(val, (np.integer, np.int64)):
+                record[col] = int(val)
+            elif isinstance(val, (np.floating, np.float64)):
+                record[col] = float(val)
+            else:
+                record[col] = val
+
+        batch_ts = row["_ingested_at"]
+        if isinstance(batch_ts, pd.Timestamp):
+            batch_ts_str = batch_ts.isoformat()
+        else:
+            batch_ts_str = str(batch_ts)
+
+        batch_id = f"{source}_{entity}_{batch_ts_str[:10]}_{uuid.uuid4().hex[:8]}"
+
+        rows.append({
+            "_source": source,
+            "_entity": entity,
+            "_ingested_at": row["_ingested_at"],
+            "_schema_version": int(row["_schema_version"]),
+            "_batch_id": batch_id,
+            "data": json.dumps(record, default=str),
+        })
+
+    events_df = pd.DataFrame(rows)
+
+    events_df["year"] = pd.to_datetime(events_df["_ingested_at"]).dt.year
+    events_df["month"] = pd.to_datetime(events_df["_ingested_at"]).dt.month
+    events_df["day"] = pd.to_datetime(events_df["_ingested_at"]).dt.day
+
+    for (year, month, day), group in events_df.groupby(["year", "month", "day"]):
+        path = os.path.join(output_dir, "raw_events", f"year={year}", f"month={month:02d}", f"day={day:02d}")
+        os.makedirs(path, exist_ok=True)
+        file_name = f"raw_events_{source}_{entity}_{year}{month:02d}{day:02d}.parquet"
+        out_file = os.path.join(path, file_name)
+
+        group = group.drop(columns=["year", "month", "day"])
+        table = pa.Table.from_pandas(group, preserve_index=False)
+        pq.write_table(table, out_file, compression="snappy")
+
+
 def main():
-    parser = argparse.ArgumentParser(description="Generate synthetic dummy data for platform testing")
+    parser = argparse.ArgumentParser(
+        description="Generate synthetic dummy data for platform testing",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Output formats:
+  --format flat       One Parquet file per entity per day with entity-specific
+                      columns (legacy format, compatible with Hive partitioning)
+  --format raw_events One Parquet file per entity per day with unified schema:
+                      _source, _entity, _ingested_at, _schema_version,
+                      _batch_id, data (JSON). This mirrors how Airbyte/dlt/Fivetran
+                      land API data and is the recommended format for dbt staging.
+        """,
+    )
     parser.add_argument("--output-dir", default="./data", help="Base output directory")
     parser.add_argument("--seed", type=int, default=42, help="Random seed for reproducibility")
     parser.add_argument("--start-date", default="2026-01-01", help="Start date (YYYY-MM-DD)")
     parser.add_argument("--days", type=int, default=30, help="Number of days to generate")
     parser.add_argument("--n-customers", type=int, default=120, help="Number of customers")
+    parser.add_argument("--format", dest="output_format", choices=["flat", "raw_events", "both"], default="raw_events",
+                        help="Output format: 'flat' (entity-specific columns), "
+                             "'raw_events' (unified schema with JSON data column), "
+                             "'both' (write both formats). Default: raw_events")
     args = parser.parse_args()
 
     start = datetime.strptime(args.start_date, "%Y-%m-%d")
@@ -808,17 +889,26 @@ def main():
     bals = apply_stale_partitions(dg, bals)
     metrics = apply_stale_partitions(dg, metrics)
 
-    # Write everything
+    # Write output
+    entities = [
+        (subs, "payments", "subscriptions"),
+        (invs, "payments", "invoices"),
+        (apps, "lending", "loan_applications"),
+        (facs, "lending", "credit_facilities"),
+        (dds, "lending", "drawdowns"),
+        (reps, "lending", "repayments"),
+        (fxs, "banking", "fx_transactions"),
+        (bals, "banking", "account_balances"),
+        (metrics, "crm", "company_metrics"),
+    ]
+
     print("Writing Parquet files...")
-    write_partitioned(subs, "payments/subscriptions", args.output_dir)
-    write_partitioned(invs, "payments/invoices", args.output_dir)
-    write_partitioned(apps, "lending/loan_applications", args.output_dir)
-    write_partitioned(facs, "lending/credit_facilities", args.output_dir)
-    write_partitioned(dds, "lending/drawdowns", args.output_dir)
-    write_partitioned(reps, "lending/repayments", args.output_dir)
-    write_partitioned(fxs, "banking/fx_transactions", args.output_dir)
-    write_partitioned(bals, "banking/account_balances", args.output_dir)
-    write_partitioned(metrics, "crm/company_metrics", args.output_dir)
+    for df, source, entity in entities:
+        entity_path = f"{source}/{entity}"
+        if args.output_format in ("flat", "both"):
+            write_partitioned(df, entity_path, args.output_dir)
+        if args.output_format in ("raw_events", "both"):
+            write_raw_events(df, source, entity, args.output_dir)
 
     # Summary
     print("\nDone. Generated:")
@@ -833,6 +923,7 @@ def main():
     print(f"  Balances:      {len(bals)}")
     print(f"  Metrics:       {len(metrics)}")
     print(f"\nOutput: {args.output_dir}")
+    print(f"Format: {args.output_format}")
 
 
 if __name__ == "__main__":

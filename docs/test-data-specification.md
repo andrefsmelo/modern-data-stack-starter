@@ -679,6 +679,71 @@ File pattern: `crm/company_metrics/year=YYYY/month=MM/day=DD/crm_company_metrics
 5. **`_ingested_at`** is a true `timestamp[us]` and can be trusted for deduplication (keep latest). All other date columns are `large_string` and require parsing.
 6. **`application_id`** in `credit_facilities` is typed as `null` because all values are `None`. The staging model should still define the column as `STRING` nullable.
 
+## Output Formats
+
+The generator supports two output formats, selected via the `--format` flag. The **raw_events** format is the recommended default for dbt ingestion pipelines.
+
+### Format 1: `raw_events` (Recommended)
+
+One row per individual record with a unified schema. All entity-specific columns are packed into a JSON `data` column. This mirrors how Airbyte, dlt, and Fivetran land API data.
+
+**File pattern:** `raw_events/year=YYYY/month=MM/day=DD/raw_events_{source}_{entity}_YYYYMMDD.parquet`
+
+**Schema (identical for all 9 entities):**
+
+| Column | Parquet Type | Nullable | Description |
+|---|---|---|---|
+| `_source` | `large_string` | no | Source system: `payments`, `lending`, `banking`, or `crm` |
+| `_entity` | `large_string` | no | Entity name: e.g., `subscriptions`, `drawdowns` |
+| `_ingested_at` | `timestamp[us]` | no | Wall-clock time of write; used for deduplication |
+| `_schema_version` | `int64` | no | Schema version; starts at `1` |
+| `_batch_id` | `large_string` | no | Unique batch identifier: `{source}_{entity}_{date}_{hex}` |
+| `data` | `large_string` | no | JSON object containing all entity-specific fields (dirty data) |
+
+**dbt staging pattern:**
+
+```sql
+-- Example: extract subscriptions from raw_events
+SELECT
+    _source,
+    _entity,
+    _ingested_at,
+    _schema_version,
+    _batch_id,
+    json_extract(data, '$.subscription_id')  AS subscription_id,
+    json_extract(data, '$.customer_id')      AS customer_id,
+    json_extract(data, '$.mrr_amount')       AS mrr_amount,
+    json_extract(data, '$.currency')          AS currency,
+    -- ... more columns
+FROM raw_events
+WHERE _source = 'payments' AND _entity = 'subscriptions'
+```
+
+### Format 2: `flat` (Legacy)
+
+One Parquet file per entity per day, with entity-specific columns as top-level columns. This is the traditional Hive-partitioned layout.
+
+**File pattern:** `{source}/{entity}/year=YYYY/month=MM/day=DD/{source}_{entity}_YYYYMMDD.parquet`
+
+**Schema:** Entity-specific columns as described in the "Generated Parquet Schemas" section above.
+
+### Format 3: `both`
+
+Writes both formats simultaneously. Useful during migration from flat to raw_events.
+
+### Usage
+
+```bash
+# Default: raw_events format only
+python3 ingestion/scripts/generate_dummy_data.py --output-dir ./data --seed 42
+
+# Flat format only (legacy)
+python3 ingestion/scripts/generate_dummy_data.py --output-dir ./data --seed 42 --format flat
+
+# Both formats
+python3 ingestion/scripts/generate_dummy_data.py --output-dir ./data --seed 42 --format both
+```
+
 ## Generating the Data
 
 A Python script (using `pyarrow` + `Faker`) will generate the raw files. The generator must accept a "dirtiness seed" so the same reproducible anomalies are injected every CI run. The generation script lives in `ingestion/scripts/generate_dummy_data.py`.
