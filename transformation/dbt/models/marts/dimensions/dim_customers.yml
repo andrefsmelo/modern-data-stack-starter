@@ -1,0 +1,69 @@
+version: 2
+
+models:
+  - name: dim_customers
+    description: "One row per customer derived from approved loan applications, enriched with ARR, facility, drawdown, banking, and company-metrics data."
+    columns:
+      - name: customer_id
+        description: "Primary key — sourced from loan_applications where status='approved'"
+        tests:
+          - unique:
+              config:
+                severity: error
+          - not_null:
+              config:
+                severity: error
+
+      - name: company_name
+        description: "Company name from the latest approved loan application"
+
+      - name: country_code
+        description: "ISO 3166-1 alpha-2 country code from the latest approved loan application"
+
+      - name: industry
+        description: "Industry sector from the latest approved loan application"
+
+      - name: headcount_at_application
+        description: "Headcount reported at the time of the latest approved loan application"
+
+      - name: valuation_at_application
+        description: "Company valuation reported at the time of the latest approved loan application"
+
+      - name: arr_at_application
+        description: "ARR reported at the time of the latest approved loan application"
+
+      - name: lifetime_arr
+        description: "Current ARR computed from active subscriptions converted to EUR (from int_arr_per_customer)"
+
+      - name: arr_growth_pct
+        description: "Percentage change in ARR vs prior period (from int_arr_per_customer)"
+
+      - name: total_facility_limit
+        description: "Sum of facility limits across active credit facilities"
+
+      - name: total_drawn_amount
+        description: "Sum of completed drawdown amounts across all facilities"
+
+      - name: primary_account_currency
+        description: "Currency with the highest average daily balance across banking accounts"
+
+      - name: current_headcount
+        description: "Latest headcount from CRM company metrics"
+
+      - name: current_valuation
+        description: "Latest valuation from CRM company metrics"
+
+      - name: team_growth_pct
+        description: "Percentage change in headcount from prior to latest CRM company metrics snapshot"
+
+      - name: valuation_increase_multiple
+        description: "Ratio of latest to prior valuation from CRM company metrics"
+
+      - name: arr_variance_pct
+        description: "Percentage variance between reported ARR (CRM) and computed ARR (subscriptions)"
+
+      - name: is_orphaned
+        description: "Always FALSE — customers only exist in this dimension if they have an approved loan application"
+        tests:
+          - accepted_values:
+              values: [false]

@@ -1,0 +1,88 @@
+version: 2
+
+sources:
+  - name: raw_events
+    schema: main
+    description: "Unified raw events landing table from S3 (Airbyte/dlt/Fivetran pattern)"
+
+    tables:
+      - name: payments_subscriptions
+        description: "Payment subscription events"
+        loader: dlt
+        columns:
+          - name: _ingested_at
+            description: "Ingestion timestamp"
+          - name: data
+            description: "JSON payload"
+
+      - name: payments_invoices
+        description: "Payment invoice events"
+        loader: dlt
+        columns:
+          - name: _ingested_at
+            description: "Ingestion timestamp"
+          - name: data
+            description: "JSON payload"
+
+      - name: lending_loan_applications
+        description: "Loan application events"
+        loader: dlt
+        columns:
+          - name: _ingested_at
+            description: "Ingestion timestamp"
+          - name: data
+            description: "JSON payload"
+
+      - name: lending_credit_facilities
+        description: "Credit facility events"
+        loader: dlt
+        columns:
+          - name: _ingested_at
+            description: "Ingestion timestamp"
+          - name: data
+            description: "JSON payload"
+
+      - name: lending_drawdowns
+        description: "Drawdown events"
+        loader: dlt
+        columns:
+          - name: _ingested_at
+            description: "Ingestion timestamp"
+          - name: data
+            description: "JSON payload"
+
+      - name: lending_repayments
+        description: "Repayment events"
+        loader: dlt
+        columns:
+          - name: _ingested_at
+            description: "Ingestion timestamp"
+          - name: data
+            description: "JSON payload"
+
+      - name: banking_fx_transactions
+        description: "FX transaction events"
+        loader: dlt
+        columns:
+          - name: _ingested_at
+            description: "Ingestion timestamp"
+          - name: data
+            description: "JSON payload"
+
+      - name: banking_account_balances
+        description: "Daily account balance snapshots"
+        loader: dlt
+        columns:
+          - name: _ingested_at
+            description: "Ingestion timestamp"
+          - name: data
+            description: "JSON payload"
+
+      - name: crm_company_metrics
+        description: "CRM company lifecycle metrics"
+        loader: dlt
+        columns:
+          - name: _ingested_at
+            description: "Ingestion timestamp"
+          - name: data
+            description: "JSON payload"

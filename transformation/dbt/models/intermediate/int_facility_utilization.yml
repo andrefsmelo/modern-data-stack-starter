@@ -1,0 +1,45 @@
+version: 2
+
+models:
+  - name: int_facility_utilization
+    description: "One row per facility with total drawn amount, utilization percentage, and an orphan flag for drawdowns that reference missing facilities."
+    columns:
+      - name: facility_id
+        description: "Primary key — unique facility identifier; may originate from drawdowns if orphaned"
+        tests:
+          - not_null:
+              config:
+                severity: error
+          - unique:
+              config:
+                severity: error
+
+      - name: customer_id
+        description: "Foreign key to the customer dimension (NULL for orphaned rows)"
+        tests:
+          - relationships:
+              to: ref('stg_lending__credit_facilities')
+              field: customer_id
+              config:
+                severity: warn
+
+      - name: facility_limit
+        description: "Credit facility limit in original currency (DECIMAL; NULL for orphaned rows)"
+
+      - name: currency
+        description: "ISO 4217 currency code of the facility"
+
+      - name: facility_status
+        description: "Facility status from the staging model (NULL for orphaned rows)"
+
+      - name: total_drawn_amount
+        description: "Sum of completed drawdown amounts per facility (0 when no drawdowns)"
+
+      - name: current_utilization_pct
+        description: "total_drawn_amount / facility_limit × 100; NULL when facility_limit is 0 or missing"
+
+      - name: is_orphaned
+        description: "TRUE when the facility_id exists in drawdowns but not in the facilities table"
+        tests:
+          - accepted_values:
+              values: [true, false]

@@ -1,0 +1,74 @@
+version: 2
+
+models:
+  - name: stg_lending__repayments
+    description: "Cleansed repayment events from lending source."
+    columns:
+      - name: repayment_id
+        description: "Primary key — deduplicated by latest _ingested_at"
+        tests:
+          - unique:
+              config:
+                severity: error
+          - not_null:
+              config:
+                severity: error
+
+      - name: drawdown_id
+        description: "Foreign key to stg_lending__drawdowns (orphaned OK)"
+        tests:
+          - not_null:
+              config:
+                severity: error
+
+      - name: facility_id
+        description: "Foreign key to stg_lending__credit_facilities"
+        tests:
+          - not_null:
+              config:
+                severity: error
+
+      - name: customer_id
+        description: "Foreign key to dim_customers"
+        tests:
+          - not_null:
+              config:
+                severity: error
+
+      - name: scheduled_amount
+        description: "Scheduled repayment amount in original currency (DECIMAL)"
+        tests:
+          - not_null:
+              config:
+                severity: warn
+
+      - name: actual_amount
+        description: "Actual repayment amount in original currency (DECIMAL, nullable)"
+
+      - name: currency
+        description: "ISO 4217 currency code (cleansed; invalid codes set to NULL)"
+        tests:
+          - accepted_values:
+              values: ["GBP", "EUR", "CHF", "SEK", "NOK", "DKK", "ISK", "USD", "CAD"]
+              config:
+                severity: warn
+
+      - name: due_date
+        description: "Date the repayment is due (parsed to TIMESTAMP)"
+
+      - name: actual_date
+        description: "Date the repayment was actually made (parsed to TIMESTAMP, nullable)"
+
+      - name: status
+        description: "Repayment status"
+        tests:
+          - accepted_values:
+              values: ["paid", "scheduled", "overdue", "forgiven"]
+              config:
+                severity: warn
+
+      - name: _ingested_at
+        description: "Wall-clock ingestion timestamp from raw events"
+
+      - name: _schema_version
+        description: "Schema version from raw events"

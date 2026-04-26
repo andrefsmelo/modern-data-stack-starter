@@ -1,0 +1,69 @@
+version: 2
+
+models:
+  - name: stg_lending__credit_facilities
+    description: "Cleansed credit facility events from lending source."
+    columns:
+      - name: facility_id
+        description: "Primary key — deduplicated by latest _ingested_at"
+        tests:
+          - unique:
+              config:
+                severity: error
+          - not_null:
+              config:
+                severity: error
+
+      - name: customer_id
+        description: "Foreign key to dim_customers"
+        tests:
+          - not_null:
+              config:
+                severity: error
+
+      - name: application_id
+        description: "Foreign key to stg_lending__loan_applications (nullable)"
+
+      - name: facility_limit
+        description: "Credit facility limit in original currency (DECIMAL; negative values set to NULL)"
+        tests:
+          - not_null:
+              config:
+                severity: warn
+
+      - name: currency
+        description: "ISO 4217 currency code (cleansed; invalid codes set to NULL)"
+        tests:
+          - accepted_values:
+              values: ["GBP", "EUR", "CHF", "SEK", "NOK", "DKK", "ISK", "USD", "CAD"]
+              config:
+                severity: warn
+
+      - name: approval_date
+        description: "Date the facility was approved (parsed to TIMESTAMP)"
+
+      - name: maturity_date
+        description: "Date the facility matures (parsed to TIMESTAMP)"
+
+      - name: status
+        description: "Credit facility status"
+        tests:
+          - accepted_values:
+              values: ["active", "closed", "suspended"]
+              config:
+                severity: warn
+
+      - name: interest_rate
+        description: "Interest rate on the facility (DOUBLE)"
+
+      - name: repayment_schedule_json
+        description: "Raw JSON string of repayment schedule (kept as string)"
+
+      - name: collateral_required
+        description: "Collateral requirement flag (schema-drift column; may be NULL)"
+
+      - name: _ingested_at
+        description: "Wall-clock ingestion timestamp from raw events"
+
+      - name: _schema_version
+        description: "Schema version from raw events"

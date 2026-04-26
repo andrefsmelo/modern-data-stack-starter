@@ -1,0 +1,60 @@
+version: 2
+
+models:
+  - name: fct_drawdowns
+    description: "One row per drawdown event with facility and customer foreign keys, days-since-approval latency, and an orphan flag."
+    columns:
+      - name: drawdown_id
+        description: "Primary key — unique drawdown identifier (nullable in source)"
+        tests:
+          - unique:
+              config:
+                severity: error
+
+      - name: facility_id
+        description: "Foreign key to dim_credit_facilities"
+        tests:
+          - not_null:
+              config:
+                severity: error
+          - relationships:
+              to: ref('dim_credit_facilities')
+              field: facility_id
+              config:
+                severity: warn
+
+      - name: customer_id
+        description: "Foreign key to dim_customers"
+        tests:
+          - not_null:
+              config:
+                severity: error
+          - relationships:
+              to: ref('dim_customers')
+              field: customer_id
+              config:
+                severity: warn
+
+      - name: amount
+        description: "Drawdown amount in original currency (DECIMAL)"
+
+      - name: currency
+        description: "ISO 4217 currency code of the drawdown"
+
+      - name: drawdown_date
+        description: "Date the drawdown was made"
+
+      - name: purpose
+        description: "Purpose of the drawdown"
+
+      - name: status
+        description: "Drawdown status (completed, pending, failed)"
+
+      - name: days_since_facility_approval
+        description: "Number of days between facility approval date and drawdown date"
+
+      - name: is_orphaned
+        description: "TRUE when facility_id not in dim_credit_facilities or customer_id not in dim_customers"
+        tests:
+          - accepted_values:
+              values: [true, false]

@@ -1,0 +1,69 @@
+version: 2
+
+models:
+  - name: stg_payments__subscriptions
+    description: "Cleansed subscription events from payments source."
+    columns:
+      - name: subscription_id
+        description: "Primary key — deduplicated by latest _ingested_at"
+        tests:
+          - unique:
+              config:
+                severity: error
+          - not_null:
+              config:
+                severity: error
+
+      - name: customer_id
+        description: "Foreign key to dim_customers"
+        tests:
+          - not_null:
+              config:
+                severity: error
+
+      - name: plan_id
+        description: "SaaS plan identifier"
+
+      - name: plan_name
+        description: "Human-readable plan name"
+
+      - name: mrr_amount
+        description: "Monthly recurring revenue in original currency (major units, DECIMAL)"
+        tests:
+          - not_null:
+              config:
+                severity: warn
+
+      - name: currency
+        description: "ISO 4217 currency code (cleansed; invalid codes set to NULL)"
+        tests:
+          - accepted_values:
+              values: ["GBP", "EUR", "CHF", "SEK", "NOK", "DKK", "ISK", "USD", "CAD"]
+              config:
+                severity: warn
+
+      - name: status
+        description: "Subscription status"
+        tests:
+          - accepted_values:
+              values: ["active", "cancelled", "paused"]
+              config:
+                severity: warn
+
+      - name: billing_period_start
+        description: "Start of the billing period (parsed to TIMESTAMP)"
+
+      - name: billing_period_end
+        description: "End of the billing period (parsed to TIMESTAMP)"
+
+      - name: quantity
+        description: "Number of seats/licenses"
+
+      - name: created_at
+        description: "Record creation timestamp (parsed to TIMESTAMP)"
+
+      - name: _ingested_at
+        description: "Wall-clock ingestion timestamp from raw events"
+
+      - name: _schema_version
+        description: "Schema version from raw events"

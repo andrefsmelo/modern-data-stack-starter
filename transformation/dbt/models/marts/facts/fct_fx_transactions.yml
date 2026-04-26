@@ -1,0 +1,57 @@
+version: 2
+
+models:
+  - name: fct_fx_transactions
+    description: "One row per FX conversion event with canonical currency pair, notional amounts, effective rate, and an orphan flag for customer referential integrity."
+    columns:
+      - name: transaction_id
+        description: "Primary key — unique FX transaction identifier"
+        tests:
+          - unique:
+              config:
+                severity: error
+          - not_null:
+              config:
+                severity: error
+
+      - name: customer_id
+        description: "Foreign key to dim_customers"
+        tests:
+          - not_null:
+              config:
+                severity: error
+          - relationships:
+              to: ref('dim_customers')
+              field: customer_id
+              config:
+                severity: warn
+
+      - name: base_currency
+        description: "ISO 4217 code of the base (sold) currency"
+
+      - name: quote_currency
+        description: "ISO 4217 code of the quote (bought) currency"
+
+      - name: currency_pair
+        description: "Canonical currency pair formatted as BASE/QUOTE"
+
+      - name: notional_base
+        description: "Notional amount in the base currency (DECIMAL)"
+
+      - name: notional_quote
+        description: "Notional amount in the quote currency (DECIMAL)"
+
+      - name: effective_rate
+        description: "Exchange rate applied to the conversion (DOUBLE)"
+
+      - name: rate_type
+        description: "Rate type (e.g., spot, forward)"
+
+      - name: transaction_date
+        description: "Date the FX transaction was executed"
+
+      - name: is_orphaned
+        description: "TRUE when the customer_id does not exist in dim_customers"
+        tests:
+          - accepted_values:
+              values: [true, false]

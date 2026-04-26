@@ -1,0 +1,24 @@
+version: 2
+
+models:
+  - name: int_arr_per_customer
+    description: "One row per customer with annualized recurring revenue (ARR) converted to EUR, active subscription count, and ARR growth percentage."
+    columns:
+      - name: customer_id
+        description: "Foreign key to the customer dimension"
+        tests:
+          - not_null:
+              config:
+                severity: error
+          - unique:
+              config:
+                severity: error
+
+      - name: current_arr
+        description: "Annualized recurring revenue in EUR; sum of active-subscription MRR × 12, FX-converted"
+
+      - name: subscription_count
+        description: "Count of active subscriptions contributing to current_arr"
+
+      - name: arr_growth_pct
+        description: "Percentage change in ARR vs 30 days ago; falls back to earliest MRR × 12 when no prior period exists"

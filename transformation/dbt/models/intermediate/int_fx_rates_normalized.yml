@@ -1,0 +1,52 @@
+version: 2
+
+models:
+  - name: int_fx_rates_normalized
+    description: "One row per FX transaction with canonicalised currency pair, harmonised effective rate (inverted when > 10), and computed notional values."
+    columns:
+      - name: transaction_id
+        description: "Primary key — FX transaction identifier"
+        tests:
+          - not_null:
+              config:
+                severity: error
+          - unique:
+              config:
+                severity: error
+
+      - name: customer_id
+        description: "Foreign key to the customer dimension"
+        tests:
+          - not_null:
+              config:
+                severity: error
+
+      - name: base_currency
+        description: "ISO 4217 currency code for the base side"
+
+      - name: quote_currency
+        description: "ISO 4217 currency code for the quote side"
+
+      - name: currency_pair
+        description: "Canonical BASEQUOTE format (e.g. EURGBP)"
+
+      - name: base_amount
+        description: "Notional in base currency (DECIMAL)"
+
+      - name: quote_amount
+        description: "Notional in quote currency; falls back to base_amount × effective_rate when NULL"
+
+      - name: effective_rate
+        description: "Exchange rate applied; inverted (1/rate) when original rate > 10"
+
+      - name: rate_type
+        description: "Type of exchange rate from the source"
+
+      - name: transaction_date
+        description: "Date the FX transaction was executed"
+
+      - name: is_orphaned
+        description: "Placeholder flag — always FALSE for now"
+        tests:
+          - accepted_values:
+              values: [false]
