@@ -1,12 +1,12 @@
 # Architecture
 
-> A lightweight, cost-effective data platform blueprint for early-stage startups, designed to grow with your business.
+> The architectural reasoning behind this repo: layers, costs, conventions, and the per-layer upgrade path.
 
 -----
 
 ## Overview
 
-This project documents and implements a production-ready data platform designed for small startups that need to move fast, keep costs low, and avoid architectural dead ends. The stack is intentionally minimal at first, with a clear upgrade path at each layer as the business scales.
+The platform is designed for a context where moving fast, keeping infrastructure cost low, and avoiding architectural dead ends all matter at the same time — a single data engineer (or one-and-a-half) supporting a company up to ~50 people. The stack is intentionally minimal at first, with a clear upgrade path at each layer as data volume, source count, or team size grows.
 
 For the operational signals that should drive a move between phases or tools, see [evolution-triggers.md](evolution-triggers.md). For the ingestion-tool landscape and decision matrix (Airbyte vs. dlt vs. Meltano vs. Fivetran vs. CDC vs. OCR), see [ingestion.md](ingestion.md). For ephemeral compute, GitHub Actions pricing, and the escape hatches when it doesn't fit (Lambda, Fargate, Modal, Cloud Run), see [orchestration.md](orchestration.md).
 
