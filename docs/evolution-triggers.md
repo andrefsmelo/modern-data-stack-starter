@@ -6,7 +6,7 @@ This document complements [architecture.md](architecture.md). The architecture d
 
 ## How to use this document
 
-- Each section covers one layer (Storage, Compute, Ingestion, Orchestration, Visualization, Observability).
+- Each section covers one layer (Storage, Compute, Ingestion, Orchestration, Observability).
 - Each trigger has three parts: **Signal** (what you measure), **Threshold** (when to act), **Action** (what to do).
 - Triggers are independent: hitting one in storage does not force a change in compute. Migrate the smallest unit that solves the pain.
 - Re-evaluate quarterly. A trigger that fired but later resolved (e.g. a one-off backfill) is not a reason to migrate.
@@ -149,34 +149,6 @@ This document complements [architecture.md](architecture.md). The architecture d
 
 -----
 
-## Visualization
-
-### Trigger V1 — Metabase performance
-
-| | |
-|---|---|
-|**Signal**|Dashboard load time on the most-used dashboard.|
-|**Threshold**|> 10 s p95 after caching is enabled.|
-|**Action**|First, add Metabase model caching and pre-aggregated marts. Only if that fails, scale the Metabase VM up to 4 GB.|
-
-### Trigger V2 — User count growth
-
-| | |
-|---|---|
-|**Signal**|Active Metabase users in a 30-day window.|
-|**Threshold**|> 25 active users, or > 5 simultaneous heavy users.|
-|**Action**|Move Metabase to a 4 GB → 8 GB VM with Postgres as the application database (default H2 does not scale). Consider **Metabase Cloud** if ops time matters more than cost.|
-
-### Trigger V3 — Embedded analytics
-
-| | |
-|---|---|
-|**Signal**|Need to embed dashboards in a customer-facing product.|
-|**Threshold**|First product requirement.|
-|**Action**|Evaluate **Metabase Embedding (paid)** vs. a build-your-own approach with Cube.js or Apache Superset. Metabase OSS embedding has feature limits.|
-
------
-
 ## Observability
 
 ### Trigger Ob1 — Failures discovered late
@@ -191,7 +163,7 @@ This document complements [architecture.md](architecture.md). The architecture d
 
 | | |
 |---|---|
-|**Signal**|Incident postmortems require pulling logs from > 2 systems (GitHub Actions + Airbyte + Metabase + S3).|
+|**Signal**|Incident postmortems require pulling logs from > 2 systems (GitHub Actions + Airbyte + S3).|
 |**Threshold**|> 1 such incident per month.|
 |**Action**|Adopt **Sentry** (errors) and **Grafana Cloud** (metrics, free tier). Forward dbt artifacts and Airbyte logs to a single store. Pre-Phase-3, avoid Datadog — pricing escalates fast.|
 

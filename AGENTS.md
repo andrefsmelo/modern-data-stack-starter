@@ -20,7 +20,6 @@ modern-data-stack-starter/
 ├── transformation/       # dbt project (models, tests, schema.yml)
 ├── orchestration/        # Orchestration docs and helpers (workflows live in .github/workflows/)
 ├── .github/workflows/    # GitHub Actions: ingest.yml (manual), dbt-build.yml (cron + manual)
-├── visualization/        # Metabase dashboard exports and configs
 ├── docs/
 │   ├── architecture.md             # ← full architecture (start here)
 │   ├── ingestion.md                # ← ingestion-tool landscape and decision matrix
@@ -37,7 +36,7 @@ modern-data-stack-starter/
 
 ## Key Facts
 
-- **Current phase:** Phase 1 (Bootstrap) — Airbyte/dlt + Amazon S3 + dbt Core + DuckDB + Metabase
+- **Current phase:** Phase 1 (Bootstrap) — Airbyte/dlt + Amazon S3 + dbt Core + DuckDB. Visualization layer is intentionally not implemented (see README "What's next").
 - **Target cost:** ~$30-35/month (≈$10/month if Airbyte is replaced by dlt in GitHub Actions)
 - **Storage:** Amazon S3, Parquet files in an Iceberg-ready layout
 - **dbt execution:** GitHub Actions runners; `prod.duckdb` round-trips through S3 (see ADR-0001)

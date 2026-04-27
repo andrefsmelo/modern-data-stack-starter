@@ -218,7 +218,7 @@ Reach for managed (Fivetran / Stitch / Hevo) when one of these fires:
 
 Reach for CDC (DMS / Debezium / Estuary) only when freshness < 1 hour is a real product requirement, not a nice-to-have. CDC is a different operational discipline — it should be a deliberate Phase 2+ decision, not a Phase 1 experiment.
 
-For **document / OCR sources**, treat the extraction as a separate ingestion job that lands its structured output back in S3 as Parquet, so the rest of the stack (dbt, Metabase) sees it as a normal source. Default in 2026:
+For **document / OCR sources**, treat the extraction as a separate ingestion job that lands its structured output back in S3 as Parquet, so the rest of the stack (dbt, downstream consumers) sees it as a normal source. Default in 2026:
 
 - **Variable templates** (different senders, different layouts) → **LLM extraction** (Claude or GPT-4o) with a structured-output schema. Cheapest path to working extraction without per-template tuning.
 - **Fixed templates** (your own forms, one vendor) → **AWS Textract** or **Google Document AI** specialized parser.

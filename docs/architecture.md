@@ -39,8 +39,10 @@ For the operational signals that should drive a move between phases or tools, se
 ### Layers
 
 ```
-Ingestion → Storage → Transformation → Orchestration → Visualization → Observability
+Ingestion → Storage → Transformation → Orchestration → Observability
 ```
+
+A visualization layer is part of the design but intentionally not implemented in the bootstrap phase — the chosen tool reads `prod.duckdb` directly, so it can be added without changing any upstream layer.
 
 ### Phase 1 (0-6 months) — Bootstrap
 
@@ -51,7 +53,6 @@ Ingestion → Storage → Transformation → Orchestration → Visualization →
 |Format        |Parquet (Iceberg-ready layout)        |Open standard, partition layout compatible with Iceberg later|
 |Transformation|dbt Core + DuckDB                     |Zero license cost, handles 100s of GB on a single node|
 |Orchestration |GitHub Actions (cron schedules)       |Ephemeral runners, $0 in the free tier for typical use; see [orchestration.md](orchestration.md)|
-|Visualization |Metabase (self-hosted)                |Free, easy to use, self-contained                  |
 |Observability |GitHub Actions notifications → Slack  |Free, surfaces failures where the team already lives|
 
 ### Phase 2 (6-18 months) — Growth
@@ -63,7 +64,6 @@ Ingestion → Storage → Transformation → Orchestration → Visualization →
 |Transformation   |dbt Core in CI (GitHub Actions) + scheduled BigQuery/Snowflake runs|Team size grows; need scheduled runs and tested artifacts|
 |Orchestration    |Prefect Cloud or Dagster Cloud   |More than 10 pipelines or non-trivial dependencies   |
 |Ingestion        |Airbyte Cloud or dedicated VM    |Source count > 10, or self-hosted Airbyte memory pressure|
-|Visualization    |Metabase or Looker Studio        |BI needs expand beyond simple dashboards             |
 |Observability    |Sentry / Grafana Cloud + dbt artifacts|Failures across multiple systems require a single pane|
 
 ### Phase 3 (18+ months) — Scale
@@ -74,14 +74,13 @@ Ingestion → Storage → Transformation → Orchestration → Visualization →
 |Compute       |Spark on Databricks or EMR, Trino, or Snowflake at scale|
 |Transformation|dbt Cloud                        |
 |Orchestration |Dagster or Apache Airflow        |
-|Visualization |Looker or custom tooling         |
 |Observability |Datadog / OpenTelemetry + Monte Carlo or Elementary|
 
 -----
 
 ## Cost Estimate — Phase 1
 
-VM sizes are calibrated against actual memory needs (Airbyte JVM ≈ 4 GB, Metabase JVM ≈ 2 GB). The earlier "$5 + $10" budget under-provisioned both services.
+VM sizes are calibrated against actual memory needs (Airbyte JVM ≈ 4 GB).
 
 |Component                         |Monthly Cost   |
 |----------------------------------|---------------|
@@ -89,12 +88,11 @@ VM sizes are calibrated against actual memory needs (Airbyte JVM ≈ 4 GB, Metab
 |dbt Core                          |$0             |
 |DuckDB                            |$0             |
 |Airbyte (self-hosted, 4 GB VM)    |~$20           |
-|Metabase (self-hosted, 2 GB VM)   |~$10           |
 |GitHub Actions (free tier)        |$0             |
 |Slack (free tier)                 |$0             |
-|**Total**                         |**~$30-35/mo** |
+|**Total**                         |**~$20-25/mo** |
 
-If $30/mo is still too high, swap Airbyte for [dlt](https://dlthub.com) running inside GitHub Actions — that drops the Airbyte VM entirely and brings the budget to ~$10/mo, at the cost of writing more connector code.
+If $20/mo is still too high, swap Airbyte for [dlt](https://dlthub.com) running inside GitHub Actions — that drops the Airbyte VM entirely and brings the budget to ~$1/mo, at the cost of writing more connector code.
 
 -----
 
@@ -118,10 +116,6 @@ dbt Core + DuckDB
       ├── staging/        (clean, typed, renamed)
       ├── intermediate/   (joins, business rules)
       └── marts/          (final models for BI)
-      │
-      ▼
-[Visualization Layer]
-Metabase
       │
       ▼
 [Observability]
@@ -227,4 +221,3 @@ For the **full operational playbook** — per-layer triggers, what to do when ea
 - [Airbyte Documentation](https://docs.airbyte.com)
 - [Apache Iceberg](https://iceberg.apache.org)
 - [Amazon S3 Pricing](https://aws.amazon.com/s3/pricing/)
-- [Metabase Documentation](https://www.metabase.com/docs)
