@@ -2,7 +2,6 @@
 
 An end-to-end analytics platform built around a realistic fintech dataset. Synthetic lending, banking, and payments data flows from S3 through dbt into a DuckDB warehouse — all on a stack that runs for ~$30/month and makes every architectural trade-off explicit.
 
-> **Status** — ingestion, storage, transformation, and orchestration are runnable end-to-end. The visualization layer is intentionally out of scope for now (see [What's next](#whats-next)). Workflows live in [`.github/workflows/`](.github/workflows/); the design is in [docs/orchestration.md](docs/orchestration.md) and a step-by-step setup walkthrough is in [docs/setup.md](docs/setup.md).
 
 -----
 
@@ -61,6 +60,7 @@ The most useful part of the project for a reviewer is probably the design docs. 
 | [orchestration.md](docs/orchestration.md)                                      | Ephemeral compute pattern, GitHub Actions pricing math, escape hatches (Lambda, Fargate, Modal)      |
 | [evolution-triggers.md](docs/evolution-triggers.md)                            | Per-layer signals that say "upgrade *this* layer first" — volume, sources, latency, document inputs  |
 | [decisions/0001-duckdb-execution.md](docs/decisions/0001-duckdb-execution.md)  | Why DuckDB runs inside CI with `prod.duckdb` round-tripping through S3                               |
+| [marts.md](docs/marts.md)                                                      | Marts schema overview, example SQL, and how to ask the warehouse questions in natural language       |
 | [test-data-specification.md](docs/test-data-specification.md)                  | Schemas, dirty-data rules, and partition layout for the synthetic dataset                            |
 
 -----
@@ -85,7 +85,15 @@ python ingestion/scripts/generate_dummy_data.py
 # 2. Build the warehouse
 cd transformation/dbt && dbt deps && dbt build
 # → produces prod.duckdb; query it directly with the duckdb CLI or any DuckDB client.
+
+# 3. (Optional) Ask the warehouse questions in natural language
+cd ..
+uv pip install anthropic duckdb pyyaml
+export ANTHROPIC_API_KEY=sk-ant-...
+python analytics/query.py "Top 10 customers by ARR"
 ```
+
+See [docs/marts.md](docs/marts.md) for a guided tour of the marts schema and example queries.
 
 -----
 
@@ -103,6 +111,7 @@ modern-data-stack-starter/
 │           └── marts/
 │               ├── facts/        # fct_drawdowns, fct_repayments, fct_fx_transactions
 │               └── dimensions/   # dim_customers, dim_credit_facilities
+├── analytics/                    # natural-language query CLI (Claude → SQL → DuckDB)
 ├── orchestration/                # orchestration docs and helpers
 ├── .github/workflows/            # GitHub Actions: ingest.yml (manual), dbt-build.yml (cron)
 ├── docs/                         # architecture, ingestion landscape, orchestration, setup guide, ADRs
