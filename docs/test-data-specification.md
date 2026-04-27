@@ -755,7 +755,6 @@ Before the dummy data is considered ready for pipeline testing:
 - [ ] Raw files written to S3 (or local MinIO) in the correct path layout.
 - [ ] `dbt source freshness` fails or warns on at least one intentionally stale partition.
 - [ ] `dbt test` runs in CI and surfaces both `error` and `warn` severity results.
-- [ ] Metabase can connect to the DuckDB `prod.duckdb` file and render a simple "drawdowns over time" chart without errors.
 - [ ] A sample ARR-to-facility-limit ratio query returns correct decimal results (validates currency normalization).
 - [ ] `dim_customers.lifetime_arr` matches the sum of active subscription MRR × 12 within 1 % tolerance.
 - [ ] `dim_customers.total_drawn_amount` equals the sum of all completed drawdowns per customer.

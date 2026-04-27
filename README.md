@@ -1,14 +1,14 @@
 # modern-data-stack-starter
 
-An end-to-end analytics platform built around a realistic fintech dataset. Synthetic lending, banking, and payments data flows from S3 through dbt and DuckDB into Metabase dashboards — all on a stack that runs for ~$30/month and makes every architectural trade-off explicit.
+An end-to-end analytics platform built around a realistic fintech dataset. Synthetic lending, banking, and payments data flows from S3 through dbt into a DuckDB warehouse — all on a stack that runs for ~$30/month and makes every architectural trade-off explicit.
 
-> **Status** — ingestion, storage, transformation, visualization, and orchestration are all runnable end-to-end. Workflows live in [`.github/workflows/`](.github/workflows/); the design is in [docs/orchestration.md](docs/orchestration.md) and a step-by-step setup walkthrough is in [docs/setup.md](docs/setup.md).
+> **Status** — ingestion, storage, transformation, and orchestration are runnable end-to-end. The visualization layer is intentionally out of scope for now (see [What's next](#whats-next)). Workflows live in [`.github/workflows/`](.github/workflows/); the design is in [docs/orchestration.md](docs/orchestration.md) and a step-by-step setup walkthrough is in [docs/setup.md](docs/setup.md).
 
 -----
 
 ## What this project demonstrates
 
-- A complete data path you can run locally: synthetic data → S3 → dbt models → DuckDB → Metabase dashboards.
+- A complete data path you can run locally: synthetic data → S3 → dbt models → DuckDB warehouse.
 - Realistic fintech domain modelling: credit facilities with drawdowns and repayment schedules, multi-currency FX transactions, subscription invoices, and CRM-side company metrics.
 - A documented decision trail for every layer — tool comparisons, pricing math, and "when does this break?" thresholds — not just a working pipeline.
 - A small set of conventions (naming, partitioning, schema versioning, test severities) that scale from one engineer to a small team without rewrites.
@@ -43,7 +43,6 @@ The dbt project transforms this into a small star schema:
 | Ingestion       | dlt (default) or Airbyte (UI option)  | Code-first by default, UI when non-engineers add sources      |
 | Storage         | Amazon S3, Parquet (Iceberg-ready)    | Open format, partition layout compatible with Iceberg later   |
 | Transformation  | dbt Core + DuckDB                     | Zero license cost; DuckDB handles 100s of GB on one machine   |
-| Visualization   | Metabase (self-hosted)                | Free, self-contained, ships with the repo                     |
 | Orchestration   | GitHub Actions cron                   | Ephemeral runners, $0 in the free tier — see docs             |
 | Observability   | GitHub Actions → Slack                | Surface failures where the team already lives                 |
 
@@ -68,7 +67,7 @@ The most useful part of the project for a reviewer is probably the design docs. 
 
 ## Run it locally
 
-Prerequisites: [uv](https://docs.astral.sh/uv/) (manages Python 3.11+), Docker (for Metabase), an S3 bucket, and AWS credentials.
+Prerequisites: [uv](https://docs.astral.sh/uv/) (manages Python 3.11+), an S3 bucket, and AWS credentials.
 
 ```bash
 git clone https://github.com/andrefsmelo/modern-data-stack-starter.git
@@ -85,11 +84,7 @@ python ingestion/scripts/generate_dummy_data.py
 
 # 2. Build the warehouse
 cd transformation/dbt && dbt deps && dbt build
-
-# 3. Launch Metabase with auto-provisioned dashboards
-cd ../.. && ./visualization/setup.sh
-python visualization/provision_dashboards.py
-# → http://localhost:3000
+# → produces prod.duckdb; query it directly with the duckdb CLI or any DuckDB client.
 ```
 
 -----
@@ -108,11 +103,9 @@ modern-data-stack-starter/
 │           └── marts/
 │               ├── facts/        # fct_drawdowns, fct_repayments, fct_fx_transactions
 │               └── dimensions/   # dim_customers, dim_credit_facilities
-├── visualization/                # Metabase setup, dashboard provisioning, DuckDB driver
 ├── orchestration/                # orchestration docs and helpers
 ├── .github/workflows/            # GitHub Actions: ingest.yml (manual), dbt-build.yml (cron)
 ├── docs/                         # architecture, ingestion landscape, orchestration, setup guide, ADRs
-├── docker-compose.yml            # Metabase + DuckDB
 └── .env.example
 ```
 
@@ -133,5 +126,6 @@ When those constraints stop being the right ones (bigger team, bigger data, real
 
 ## What's next
 
+- **Visualization layer** — a BI tool wired to `prod.duckdb`. The previous Metabase + Docker integration was removed; the next iteration will likely use a tool that reads DuckDB natively (Evidence.dev, Streamlit, or similar) to avoid the Alpine/glibc driver friction.
 - **Iceberg layer** on top of S3, so DuckDB and a future BigQuery/Snowflake instance can read the same raw layer.
 - **Document-extraction example** — landing a PDF invoice, extracting structured fields with a hosted model, joining the result against the lending models.

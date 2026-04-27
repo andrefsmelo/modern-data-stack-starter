@@ -14,7 +14,6 @@ For architecture rationale, see [`architecture.md`](architecture.md). For the la
 |---|---|---|
 | [uv](https://docs.astral.sh/uv/) | latest | Manages Python 3.11+ and dependencies |
 | AWS CLI | v2 | Reading from S3 |
-| Docker + Compose | recent | Metabase |
 | Git | any | Cloning |
 
 You'll also need:
@@ -92,28 +91,7 @@ rm prod.duckdb && DBT_DUCKDB_PATH=prod.duckdb dbt build --profiles-dir . --targe
 
 ---
 
-## 5. Visualization (Metabase)
-
-From the repo root:
-
-```bash
-./visualization/setup.sh
-```
-
-This:
-1. Builds `prod.duckdb` (skipped if it already exists from step 4)
-2. Starts Metabase via Docker Compose with the DuckDB driver mounted read-only
-3. Provisions the database connection via the Metabase API
-
-Open http://localhost:3000 and log in with the credentials shown in [`visualization/README.md`](../visualization/README.md). To load the bundled dashboards:
-
-```bash
-python visualization/provision_dashboards.py
-```
-
----
-
-## 6. Orchestration (GitHub Actions)
+## 5. Orchestration (GitHub Actions)
 
 The workflows live in [`.github/workflows/`](../.github/workflows/) — see [`orchestration/README.md`](../orchestration/README.md) for the layout and conventions.
 
@@ -136,21 +114,20 @@ To kick off the first scheduled run immediately:
 
 ---
 
-## 7. Refresh loop (after first build)
+## 6. Refresh loop (after first build)
 
 Once orchestration is wired up, the steady-state loop is:
 
 ```
 GH Actions cron  →  dbt-build  →  prod.duckdb to S3
                                        ↓
-                  pull locally  →  ./visualization/setup.sh restart  →  Metabase
+                                  pull locally  →  query with duckdb CLI
 ```
 
-To pull the latest `prod.duckdb` produced by CI for local Metabase:
+To pull the latest `prod.duckdb` produced by CI:
 
 ```bash
 aws s3 cp "s3://${S3_BUCKET}/state/prod.duckdb" transformation/dbt/prod.duckdb
-docker compose restart metabase
 ```
 
 ---
@@ -161,8 +138,7 @@ docker compose restart metabase
 |---|---|---|
 | `IO Error: Connection error for HTTP HEAD` during `dbt run` | DuckDB can't reach S3 | Check `AWS_REGION`; `unset AWS_PROFILE`; verify keys with `aws s3 ls` |
 | `No files found` from the `read_raw_events` macro | Wrong `S3_BUCKET` or `S3_RAW_PREFIX`, or empty prefix | Re-run the verification in [step 3](#3-verify-s3-raw-data) |
-| Metabase shows no tables | DuckDB file built but driver hasn't reloaded it | `docker compose restart metabase` |
 | GH Actions `dbt-build` fails on first run with "no such file" | Expected — empty `state/` bucket | The workflow handles this, builds from scratch, then uploads |
-| `dbt build` works locally but fails in CI | Missing repo Variables/Secrets | Re-check [step 6](#6-orchestration-github-actions) |
+| `dbt build` works locally but fails in CI | Missing repo Variables/Secrets | Re-check [step 5](#5-orchestration-github-actions) |
 
 For deeper debugging see the per-layer docs linked at the top of this file.

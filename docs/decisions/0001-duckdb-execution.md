@@ -41,9 +41,9 @@ A workflow-level concurrency group (`group: dbt-prod`) guarantees only one `prod
 - Developers run `dbt` locally against a separate `dev.duckdb` file that they create on demand from `dev/` S3 prefixes.
 - Developers never read or write `prod.duckdb`. To debug production, they download a copy with `aws s3 cp` and inspect it read-only.
 
-### Metabase connectivity
+### Downstream consumers
 
-Metabase connects to a **read-only copy** of `prod.duckdb`, refreshed by a separate workflow that runs after each successful `dbt run`. The copy lives on the Metabase VM's local disk so Metabase queries do not pay S3 latency.
+A future BI/visualization layer is expected to read from a **read-only copy** of `prod.duckdb`, refreshed after each successful `dbt run`. No live consumer is wired up in the current phase.
 
 ## Consequences
 
@@ -54,7 +54,7 @@ Metabase connects to a **read-only copy** of `prod.duckdb`, refreshed by a separ
 
 **Negative**
 - Each run pays the cost of downloading `prod.duckdb`. Acceptable while the file stays under ~5 GB; revisit when it exceeds that.
-- DuckDB ↔ Metabase refresh introduces a small staleness window (minutes). Acceptable for daily/hourly dashboards; not acceptable for sub-minute SLAs (out of scope for Phase 1).
+- A future BI consumer will pay a small staleness window (minutes between dbt run and refresh). Acceptable for daily/hourly dashboards; not acceptable for sub-minute SLAs (out of scope for Phase 1).
 - Concurrency cap of 1 means long-running models block subsequent schedules. Mitigated by tagging models so heavy reprocessing runs in its own workflow.
 
 ## Alternatives Considered
