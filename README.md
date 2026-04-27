@@ -8,6 +8,7 @@ An end-to-end analytics platform built around a realistic fintech dataset. Synth
 ## What this project demonstrates
 
 - A complete data path you can run locally: synthetic data → S3 → dbt models → DuckDB warehouse.
+- **A natural-language analytics CLI** that turns business questions into DuckDB SQL via the Claude API and runs them against the warehouse — no dashboards, no BI seats, just `python analytics/query.py "..."` (see below).
 - Realistic fintech domain modelling: credit facilities with drawdowns and repayment schedules, multi-currency FX transactions, subscription invoices, and CRM-side company metrics.
 - A documented decision trail for every layer — tool comparisons, pricing math, and "when does this break?" thresholds — not just a working pipeline.
 - A small set of conventions (naming, partitioning, schema versioning, test severities) that scale from one engineer to a small team without rewrites.
@@ -43,9 +44,91 @@ The dbt project transforms this into a small star schema:
 | Storage         | Amazon S3, Parquet (Iceberg-ready)    | Open format, partition layout compatible with Iceberg later   |
 | Transformation  | dbt Core + DuckDB                     | Zero license cost; DuckDB handles 100s of GB on one machine   |
 | Orchestration   | GitHub Actions cron                   | Ephemeral runners, $0 in the free tier — see docs             |
+| Ad-hoc analytics| Claude API (Sonnet 4.6) → DuckDB SQL  | Natural-language → SQL → result; replaces a BI seat for ad-hoc questions |
 | Observability   | GitHub Actions → Slack                | Surface failures where the team already lives                 |
 
 The full reasoning — including the tools that were considered and rejected — lives in [docs/architecture.md](docs/architecture.md).
+
+-----
+
+## Ask the warehouse anything
+
+A single CLI replaces the "self-serve BI" layer for ad-hoc questions. It loads every dbt `schema.yml` description, sends the question + schema to Claude, runs the returned SQL against `prod.duckdb` in read-only mode, and prints the result.
+
+```mermaid
+flowchart LR
+    Q["natural-language question"] --> S["dbt schema.yml descriptions<br/>(18 tables, ~16 KB)"]
+    S --> L["Claude (Sonnet 4.6)<br/>schema cached"]
+    L --> SQL["DuckDB SQL"]
+    SQL --> D["prod.duckdb<br/>(read-only)"]
+    D --> R["result"]
+```
+
+### Three examples (real output)
+
+**1. Simple aggregation** — "How many active credit facilities are over 100% utilized?"
+
+```sql
+SELECT COUNT(*) AS overutilized_active_facilities
+FROM main_marts.dim_credit_facilities
+WHERE facility_status = 'active'
+  AND is_orphaned = FALSE
+  AND current_utilization_pct > 100;
+```
+```
+ overutilized_active_facilities
+                              7
+```
+
+**2. Time series** — "Drawdown count and total amount per month for the last 6 months"
+
+```sql
+SELECT date_trunc('month', drawdown_date) AS month,
+       COUNT(*)                           AS drawdown_count,
+       SUM(amount)                        AS total_amount
+FROM main_marts.fct_drawdowns
+WHERE is_orphaned = FALSE
+  AND drawdown_date >= date_trunc('month', current_date - INTERVAL 5 MONTH)
+GROUP BY 1 ORDER BY 1;
+```
+```
+     month  drawdown_count  total_amount
+2026-01-01             113  1.191175e+09
+```
+
+**3. Window function** — "What share of total facility limit is held by the top 3 customers?"
+
+```sql
+SELECT SUM(CASE WHEN rnk <= 3 THEN total_facility_limit ELSE 0 END)
+       / SUM(total_facility_limit) * 100 AS top3_share_pct
+FROM (
+  SELECT customer_id, total_facility_limit,
+         RANK() OVER (ORDER BY total_facility_limit DESC) AS rnk
+  FROM main_marts.dim_customers
+  WHERE total_facility_limit IS NOT NULL
+) ranked;
+```
+```
+ top3_share_pct
+      74.598916
+```
+
+> 75 % of the book sits with three customers. In production this is the kind of concentration-risk signal that would page the credit team — answered here by typing one English sentence.
+
+### Run it yourself
+
+```bash
+uv pip install anthropic duckdb pyyaml pandas
+export ANTHROPIC_API_KEY=sk-ant-...
+
+python analytics/query.py "Top 10 customers by total drawn amount"
+python analytics/query.py --show-sql "Repayments late by more than 7 days, grouped by status"
+python analytics/query.py "Which currency pair has the most FX volume?"
+```
+
+`--show-sql` prints the generated SQL before the result — useful for sanity-checking and for learning the schema.
+
+The schema block sent to Claude is marked for [prompt caching](https://docs.claude.com/en/docs/build-with-claude/prompt-caching), so a session of related questions runs at ~0.1 ¢ per call after the first. Full design notes, the example-question grid, failure modes, and extension ideas: [`analytics/README.md`](analytics/README.md). For a guided tour of the schema this CLI queries: [`docs/marts.md`](docs/marts.md).
 
 -----
 
