@@ -8,7 +8,7 @@
 # Prerequisites:
 #   - Docker + Docker Compose
 #   - .env populated (copy from .env.example)
-#   - dbt installed in .venv (pip install -r requirements.txt)
+#   - dbt installed in .venv (uv venv && uv pip install dbt-duckdb)
 #
 # The script:
 #   1. Runs dbt against prod.duckdb (creates/updates mart tables)

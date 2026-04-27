@@ -12,7 +12,7 @@ For architecture rationale, see [`architecture.md`](architecture.md). For the la
 
 | Tool | Version | Why |
 |---|---|---|
-| Python | 3.11+ | dbt + DuckDB |
+| [uv](https://docs.astral.sh/uv/) | latest | Manages Python 3.11+ and dependencies |
 | AWS CLI | v2 | Reading from S3 |
 | Docker + Compose | recent | Metabase |
 | Git | any | Cloning |
@@ -51,12 +51,12 @@ Variable reference: [README → Configuration](../README.md#configuration). All 
 ## 2. Python environment
 
 ```bash
-python -m venv .venv
+uv venv
 source .venv/bin/activate
-pip install dbt-duckdb
+uv pip install dbt-duckdb
 ```
 
-That's the only Python dep needed when raw data is already in S3 (the data generator deps — `faker`, `pandas`, `pyarrow` — are only required for ingestion).
+`uv venv` creates `.venv/` using the first compatible Python it finds (or downloads one if needed). That's the only Python dep needed when raw data is already in S3 — the data generator deps (`faker`, `pandas`, `pyarrow`) are only required for ingestion.
 
 ---
 
