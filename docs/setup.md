@@ -91,7 +91,33 @@ rm prod.duckdb && DBT_DUCKDB_PATH=prod.duckdb dbt build --profiles-dir . --targe
 
 ---
 
-## 5. Orchestration (GitHub Actions)
+## 5. Explore the marts
+
+Two ways to consume `prod.duckdb`:
+
+```bash
+# A. Browse the schema and lineage in your browser
+cd transformation/dbt && dbt docs generate && dbt docs serve
+
+# B. Read the curated overview + example SQL
+$EDITOR docs/marts.md
+```
+
+For a natural-language interface (Claude generates the SQL, runs it, prints the result):
+
+```bash
+uv pip install anthropic duckdb pyyaml
+export ANTHROPIC_API_KEY=sk-ant-...   # or add to .env
+
+python analytics/query.py "Top 10 customers by ARR"
+python analytics/query.py --show-sql "Drawdowns by month last year"
+```
+
+See [`analytics/README.md`](../analytics/README.md) for how it works and its limits.
+
+---
+
+## 6. Orchestration (GitHub Actions)
 
 The workflows live in [`.github/workflows/`](../.github/workflows/) — see [`orchestration/README.md`](../orchestration/README.md) for the layout and conventions.
 
@@ -114,7 +140,7 @@ To kick off the first scheduled run immediately:
 
 ---
 
-## 6. Refresh loop (after first build)
+## 7. Refresh loop (after first build)
 
 Once orchestration is wired up, the steady-state loop is:
 
@@ -139,6 +165,6 @@ aws s3 cp "s3://${S3_BUCKET}/state/prod.duckdb" transformation/dbt/prod.duckdb
 | `IO Error: Connection error for HTTP HEAD` during `dbt run` | DuckDB can't reach S3 | Check `AWS_REGION`; `unset AWS_PROFILE`; verify keys with `aws s3 ls` |
 | `No files found` from the `read_raw_events` macro | Wrong `S3_BUCKET` or `S3_RAW_PREFIX`, or empty prefix | Re-run the verification in [step 3](#3-verify-s3-raw-data) |
 | GH Actions `dbt-build` fails on first run with "no such file" | Expected — empty `state/` bucket | The workflow handles this, builds from scratch, then uploads |
-| `dbt build` works locally but fails in CI | Missing repo Variables/Secrets | Re-check [step 5](#5-orchestration-github-actions) |
+| `dbt build` works locally but fails in CI | Missing repo Variables/Secrets | Re-check [step 6](#6-orchestration-github-actions) |
 
 For deeper debugging see the per-layer docs linked at the top of this file.
