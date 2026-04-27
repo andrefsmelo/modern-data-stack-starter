@@ -55,13 +55,10 @@ The full reasoning — including the tools that were considered and rejected —
 
 A single CLI replaces the "self-serve BI" layer for ad-hoc questions. It loads every dbt `schema.yml` description, sends the question + schema to Claude, runs the returned SQL against `prod.duckdb` in read-only mode, and prints the result.
 
-```mermaid
-flowchart LR
-    Q["natural-language question"] --> S["dbt schema.yml descriptions<br/>(18 tables, ~16 KB)"]
-    S --> L["Claude (Sonnet 4.6)<br/>schema cached"]
-    L --> SQL["DuckDB SQL"]
-    SQL --> D["prod.duckdb<br/>(read-only)"]
-    D --> R["result"]
+```
+ question                 schema (18 tables,           Claude               DuckDB SQL          prod.duckdb            result
+ (English)         ───►   ~16 KB, from         ───►   (Sonnet 4.6,    ───►  generated     ───►  (read-only)     ───►  (DataFrame
+                          dbt schema.yml)             schema cached)                                                   to stdout)
 ```
 
 ### Three examples (real output)

@@ -4,14 +4,12 @@ Natural-language query helper for `prod.duckdb`. Send a question, get a result b
 
 ## How it works
 
-```mermaid
-flowchart LR
-    Q["Your question"] --> S
-    Y["transformation/dbt/models/**/schema.yml"] --> S
-    S["build_schema_context()<br/>(18 tables, ~16 KB)"] --> L
-    L["Claude (Sonnet 4.6)<br/>system prompt cached"] --> SQL["SQL"]
-    SQL --> D["DuckDB read-only<br/>prod.duckdb"]
-    D --> R["DataFrame → stdout"]
+```
+ your question                                    Claude              SQL          DuckDB              DataFrame
+ (English)              ───►  build_schema_   ───► (Sonnet 4.6, ───►  string  ───►  read-only      ───► to stdout
+                              context()            schema             that          (prod.duckdb)
+ transformation/dbt/    ───►  18 tables,            cached as        runs against
+ models/**/schema.yml         ~16 KB                system prompt)
 ```
 
 1. Read every `schema.yml` under `transformation/dbt/models/` — table names, column names, dbt descriptions for marts, intermediate, and staging layers.
