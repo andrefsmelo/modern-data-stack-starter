@@ -68,14 +68,14 @@ The most useful part of the project for a reviewer is probably the design docs. 
 
 ## Run it locally
 
-Prerequisites: Python 3.11+, Docker (for Metabase), an S3 bucket, and AWS credentials.
+Prerequisites: [uv](https://docs.astral.sh/uv/) (manages Python 3.11+), Docker (for Metabase), an S3 bucket, and AWS credentials.
 
 ```bash
 git clone https://github.com/andrefsmelo/modern-data-stack-starter.git
 cd modern-data-stack-starter
 
-python -m venv .venv && source .venv/bin/activate
-pip install dbt-duckdb pandas pyarrow faker boto3 numpy
+uv venv && source .venv/bin/activate
+uv pip install dbt-duckdb pandas pyarrow faker boto3 numpy
 
 cp .env.example .env  # set BUCKET and AWS credentials
 

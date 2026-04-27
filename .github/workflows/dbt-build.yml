@@ -43,10 +43,13 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-          cache: pip
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
 
       - name: Install dbt
-        run: pip install dbt-duckdb
+        run: uv pip install --system dbt-duckdb
 
       - name: Download prod.duckdb from S3 (if it exists)
         run: |
