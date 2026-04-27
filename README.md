@@ -1,21 +1,87 @@
 # modern-data-stack-starter
 
-An end-to-end analytics platform built around a realistic fintech dataset. Synthetic lending, banking, and payments data flows from S3 through dbt into a DuckDB warehouse — all on a stack that runs for ~$30/month and makes every architectural trade-off explicit.
+> **Ask your warehouse questions in English. Get answers in seconds.**
+> A natural-language analytics CLI on top of a complete fintech data stack — synthetic data, dbt models, DuckDB warehouse — running for ~$30/month.
 
+```bash
+$ python analytics/query.py "What share of total facility limit is held by the top 3 customers?"
+ top3_share_pct
+      74.598916
+```
 
------
-
-## What this project demonstrates
-
-- A complete data path you can run locally: synthetic data → S3 → dbt models → DuckDB warehouse.
-- **A natural-language analytics CLI** that turns business questions into DuckDB SQL via the Claude API and runs them against the warehouse — no dashboards, no BI seats, just `python analytics/query.py "..."` (see below).
-- Realistic fintech domain modelling: credit facilities with drawdowns and repayment schedules, multi-currency FX transactions, subscription invoices, and CRM-side company metrics.
-- A documented decision trail for every layer — tool comparisons, pricing math, and "when does this break?" thresholds — not just a working pipeline.
-- A small set of conventions (naming, partitioning, schema versioning, test severities) that scale from one engineer to a small team without rewrites.
+> 75 % of the book sits with three customers. In production, that's a concentration-risk signal that would page the credit team — answered here by typing one English sentence.
 
 -----
 
-## The demo dataset
+## The CLI in 30 seconds
+
+A single Python script replaces "self-serve BI" for ad-hoc questions:
+
+```
+ question                  schema (18 tables,           Claude               DuckDB SQL          prod.duckdb            result
+ (English)         ───►    ~16 KB, from         ───►    (Sonnet 4.6,    ───►  generated     ───►  (read-only)     ───►   (DataFrame
+                           dbt schema.yml)              schema cached)                                                    to stdout)
+```
+
+It loads every dbt `schema.yml` description, sends the question + schema to Claude, runs the returned SQL against `prod.duckdb` in read-only mode, and prints the result. The schema block is marked for [prompt caching](https://docs.claude.com/en/docs/build-with-claude/prompt-caching), so a session of related questions runs at **~0.1 ¢ per call** after the first.
+
+```bash
+python analytics/query.py "Top 10 customers by total drawn amount"
+python analytics/query.py --show-sql "Repayments late by more than 7 days, grouped by status"
+python analytics/query.py "Which currency pair has the most FX volume?"
+```
+
+`--show-sql` prints the generated SQL before the result — useful for sanity-checking and learning the schema.
+
+Full design notes, the example-question grid, failure modes, and three more worked examples: [`analytics/README.md`](analytics/README.md).
+
+-----
+
+## Try it on your machine in 5 minutes
+
+```bash
+git clone https://github.com/andrefsmelo/modern-data-stack-starter.git
+cd modern-data-stack-starter
+
+# 1. Python env (uv installs Python 3.11+ for you)
+uv venv && source .venv/bin/activate
+uv pip install dbt-duckdb pandas pyarrow faker boto3 numpy anthropic duckdb pyyaml
+
+# 2. Generate synthetic fintech data locally (no S3 needed for the demo path)
+cp .env.example .env
+python ingestion/scripts/generate_dummy_data.py
+
+# 3. Build the warehouse (creates prod.duckdb)
+cd transformation/dbt && dbt build
+
+# 4. Ask it a question
+cd ../..
+export ANTHROPIC_API_KEY=sk-ant-...
+python analytics/query.py "Top 10 customers by ARR"
+```
+
+For the full S3-backed setup (raw data in S3, dbt round-tripping `prod.duckdb`, GitHub Actions on a cron), follow the friendly walkthrough in [`docs/setup.md`](docs/setup.md).
+
+-----
+
+## How it's built
+
+A short tour of the layers. Every choice has a documented "when does this break?" trigger and a successor — see the deep-dive links.
+
+| Layer            | Tool                                  | Why this, in one line                                                       | Deep dive |
+|------------------|---------------------------------------|-----------------------------------------------------------------------------|-----------|
+| Ingestion        | dlt (default) or Airbyte (UI option)  | Code-first by default; UI when non-engineers add sources                    | [ingestion.md](docs/ingestion.md) |
+| Storage          | Amazon S3 + Parquet (Iceberg-ready)   | Open format; partition layout works with Iceberg later                      | [architecture.md → Storage](docs/architecture.md#layers) |
+| Transformation   | dbt Core + DuckDB                     | Zero license cost; DuckDB handles 100s of GB on one machine                 | [marts.md](docs/marts.md), [ADR-0001](docs/decisions/0001-duckdb-execution.md) |
+| Orchestration    | GitHub Actions cron                   | Ephemeral runners; $0 in the free tier for typical use                      | [orchestration.md](docs/orchestration.md) |
+| Ad-hoc analytics | Claude API → DuckDB SQL               | Natural-language → SQL → result; replaces a BI seat for ad-hoc questions    | [analytics/README.md](analytics/README.md) |
+| Observability    | GitHub Actions → Slack                | Surface failures where the team already lives                               | [architecture.md → Observability](docs/architecture.md#layers) |
+
+The stack is shaped by four constraints: **cost ≤ ~$30/month**, **one operator**, **no proprietary lock-in**, and **a clear next move per layer** — see [docs/architecture.md](docs/architecture.md) for the full rationale (phase plan, cost model, what's intentionally out of scope) and [docs/evolution-triggers.md](docs/evolution-triggers.md) for "when X breaks, swap to Y".
+
+-----
+
+## The dataset
 
 The dataset simulates a European B2B fintech serving ~120 SaaS companies and is generated by [`ingestion/scripts/generate_dummy_data.py`](ingestion/scripts/generate_dummy_data.py):
 
@@ -26,115 +92,19 @@ The dataset simulates a European B2B fintech serving ~120 SaaS companies and is 
 | Payments  | `invoices`, `subscriptions`                                           |
 | CRM       | `company_metrics`                                                     |
 
-The generator is deliberately *dirty*: late-arriving rows, occasional duplicates, currency mixed at the row level, and schema drift between days. Real raw data looks like this; most synthetic datasets don't, which means the modelling layer never has to deal with the things that actually break in production. Full spec: [docs/test-data-specification.md](docs/test-data-specification.md).
+The generator is deliberately *dirty*: late-arriving rows, occasional duplicates, currency mixed at the row level, schema drift between days, and ~2-5% orphaned foreign keys. Real raw data looks like this; most synthetic datasets don't, which means the modelling layer never has to deal with the things that actually break in production.
 
-The dbt project transforms this into a small star schema:
-
-- **Staging** (`stg_*`) — one model per source table, typed and renamed.
-- **Intermediate** (`int_*`) — FX normalisation to a base currency, repayment-schedule expansion, ARR-per-customer, facility utilisation.
-- **Marts** — `fct_drawdowns`, `fct_repayments`, `fct_fx_transactions` and `dim_customers`, `dim_credit_facilities`.
+dbt transforms it into a small star schema — `stg_*` (typed/renamed), `int_*` (joins, FX normalisation), and marts (`fct_drawdowns`, `fct_repayments`, `fct_fx_transactions`, `dim_customers`, `dim_credit_facilities`). Full schema spec: [docs/test-data-specification.md](docs/test-data-specification.md). Marts walkthrough: [docs/marts.md](docs/marts.md).
 
 -----
 
-## The stack
-
-| Layer           | Tool                                  | One-line rationale                                            |
-|-----------------|---------------------------------------|---------------------------------------------------------------|
-| Ingestion       | dlt (default) or Airbyte (UI option)  | Code-first by default, UI when non-engineers add sources      |
-| Storage         | Amazon S3, Parquet (Iceberg-ready)    | Open format, partition layout compatible with Iceberg later   |
-| Transformation  | dbt Core + DuckDB                     | Zero license cost; DuckDB handles 100s of GB on one machine   |
-| Orchestration   | GitHub Actions cron                   | Ephemeral runners, $0 in the free tier — see docs             |
-| Ad-hoc analytics| Claude API (Sonnet 4.6) → DuckDB SQL  | Natural-language → SQL → result; replaces a BI seat for ad-hoc questions |
-| Observability   | GitHub Actions → Slack                | Surface failures where the team already lives                 |
-
-The full reasoning — including the tools that were considered and rejected — lives in [docs/architecture.md](docs/architecture.md).
-
------
-
-## Ask the warehouse anything
-
-A single CLI replaces the "self-serve BI" layer for ad-hoc questions. It loads every dbt `schema.yml` description, sends the question + schema to Claude, runs the returned SQL against `prod.duckdb` in read-only mode, and prints the result.
-
-```
- question                 schema (18 tables,           Claude               DuckDB SQL          prod.duckdb            result
- (English)         ───►   ~16 KB, from         ───►   (Sonnet 4.6,    ───►  generated     ───►  (read-only)     ───►  (DataFrame
-                          dbt schema.yml)             schema cached)                                                   to stdout)
-```
-
-### Three examples (real output)
-
-**1. Simple aggregation** — "How many active credit facilities are over 100% utilized?"
-
-```sql
-SELECT COUNT(*) AS overutilized_active_facilities
-FROM main_marts.dim_credit_facilities
-WHERE facility_status = 'active'
-  AND is_orphaned = FALSE
-  AND current_utilization_pct > 100;
-```
-```
- overutilized_active_facilities
-                              7
-```
-
-**2. Time series** — "Drawdown count and total amount per month for the last 6 months"
-
-```sql
-SELECT date_trunc('month', drawdown_date) AS month,
-       COUNT(*)                           AS drawdown_count,
-       SUM(amount)                        AS total_amount
-FROM main_marts.fct_drawdowns
-WHERE is_orphaned = FALSE
-  AND drawdown_date >= date_trunc('month', current_date - INTERVAL 5 MONTH)
-GROUP BY 1 ORDER BY 1;
-```
-```
-     month  drawdown_count  total_amount
-2026-01-01             113  1.191175e+09
-```
-
-**3. Window function** — "What share of total facility limit is held by the top 3 customers?"
-
-```sql
-SELECT SUM(CASE WHEN rnk <= 3 THEN total_facility_limit ELSE 0 END)
-       / SUM(total_facility_limit) * 100 AS top3_share_pct
-FROM (
-  SELECT customer_id, total_facility_limit,
-         RANK() OVER (ORDER BY total_facility_limit DESC) AS rnk
-  FROM main_marts.dim_customers
-  WHERE total_facility_limit IS NOT NULL
-) ranked;
-```
-```
- top3_share_pct
-      74.598916
-```
-
-> 75 % of the book sits with three customers. In production this is the kind of concentration-risk signal that would page the credit team — answered here by typing one English sentence.
-
-### Run it yourself
-
-```bash
-uv pip install anthropic duckdb pyyaml pandas
-export ANTHROPIC_API_KEY=sk-ant-...
-
-python analytics/query.py "Top 10 customers by total drawn amount"
-python analytics/query.py --show-sql "Repayments late by more than 7 days, grouped by status"
-python analytics/query.py "Which currency pair has the most FX volume?"
-```
-
-`--show-sql` prints the generated SQL before the result — useful for sanity-checking and for learning the schema.
-
-The schema block sent to Claude is marked for [prompt caching](https://docs.claude.com/en/docs/build-with-claude/prompt-caching), so a session of related questions runs at ~0.1 ¢ per call after the first. Full design notes, the example-question grid, failure modes, and extension ideas: [`analytics/README.md`](analytics/README.md). For a guided tour of the schema this CLI queries: [`docs/marts.md`](docs/marts.md).
-
------
-
-## Design decisions
+## Design docs
 
 The most useful part of the project for a reviewer is probably the design docs. Each one walks through the option space, the trade-offs, and the chosen path:
 
 | Document                                                                       | What it covers                                                                                       |
 |--------------------------------------------------------------------------------|------------------------------------------------------------------------------------------------------|
+| [setup.md](docs/setup.md)                                                      | Step-by-step setup walkthrough (two paths: local demo or full S3-backed stack)                       |
 | [architecture.md](docs/architecture.md)                                        | Layered phase plan, cost model, naming conventions, what's intentionally out of scope                |
 | [ingestion.md](docs/ingestion.md)                                              | Airbyte vs. dlt vs. Meltano vs. Fivetran vs. CDC vs. OCR — when to pick which                        |
 | [orchestration.md](docs/orchestration.md)                                      | Ephemeral compute pattern, GitHub Actions pricing math, escape hatches (Lambda, Fargate, Modal)      |
@@ -145,42 +115,11 @@ The most useful part of the project for a reviewer is probably the design docs. 
 
 -----
 
-## Run it locally
-
-Prerequisites: [uv](https://docs.astral.sh/uv/) (manages Python 3.11+), an S3 bucket, and AWS credentials.
-
-```bash
-git clone https://github.com/andrefsmelo/modern-data-stack-starter.git
-cd modern-data-stack-starter
-
-uv venv && source .venv/bin/activate
-uv pip install dbt-duckdb pandas pyarrow faker boto3 numpy
-
-cp .env.example .env  # set BUCKET and AWS credentials
-
-# 1. Generate synthetic fintech data and push it to S3
-python ingestion/scripts/generate_dummy_data.py
-./ingestion/scripts/push_to_s3.sh
-
-# 2. Build the warehouse
-cd transformation/dbt && dbt deps && dbt build
-# → produces prod.duckdb; query it directly with the duckdb CLI or any DuckDB client.
-
-# 3. (Optional) Ask the warehouse questions in natural language
-cd ..
-uv pip install anthropic duckdb pyyaml
-export ANTHROPIC_API_KEY=sk-ant-...
-python analytics/query.py "Top 10 customers by ARR"
-```
-
-See [docs/marts.md](docs/marts.md) for a guided tour of the marts schema and example queries.
-
------
-
 ## Project structure
 
 ```
 modern-data-stack-starter/
+├── analytics/                    # natural-language query CLI (Claude → SQL → DuckDB)
 ├── ingestion/
 │   └── scripts/                  # synthetic data generator + S3 uploader
 ├── transformation/
@@ -191,30 +130,16 @@ modern-data-stack-starter/
 │           └── marts/
 │               ├── facts/        # fct_drawdowns, fct_repayments, fct_fx_transactions
 │               └── dimensions/   # dim_customers, dim_credit_facilities
-├── analytics/                    # natural-language query CLI (Claude → SQL → DuckDB)
 ├── orchestration/                # orchestration docs and helpers
-├── .github/workflows/            # GitHub Actions: ingest.yml (manual), dbt-build.yml (cron)
-├── docs/                         # architecture, ingestion landscape, orchestration, setup guide, ADRs
+├── .github/workflows/            # ingest.yml (manual), dbt-build.yml (cron)
+├── docs/                         # architecture, ingestion landscape, orchestration, setup, ADRs
 └── .env.example
 ```
 
 -----
 
-## Design constraints
-
-The stack is shaped by four constraints that match a small-company reality:
-
-- **Cost ≤ ~$30/month.** At this size a $1,000/month tool budget is a non-starter.
-- **One operator.** Every layer has to be runnable and debuggable by a single person.
-- **No proprietary lock-in.** Open formats (Parquet, Iceberg-ready), portable tools (dbt, DuckDB).
-- **A clear next move.** For each layer there's a documented signal — "when X breaks, swap to Y" — rather than a flag-day re-platforming.
-
-When those constraints stop being the right ones (bigger team, bigger data, real-time needs), the per-layer migration playbook is in [docs/evolution-triggers.md](docs/evolution-triggers.md).
-
------
-
 ## What's next
 
-- **Visualization layer** — a BI tool wired to `prod.duckdb`. The previous Metabase + Docker integration was removed; the next iteration will likely use a tool that reads DuckDB natively (Evidence.dev, Streamlit, or similar) to avoid the Alpine/glibc driver friction.
+- **Visualization layer** — a BI tool wired to `prod.duckdb`. The previous Metabase + Docker integration was removed; the next iteration will likely use a tool that reads DuckDB natively (Evidence.dev, Streamlit, or similar) to avoid Alpine/glibc driver friction.
 - **Iceberg layer** on top of S3, so DuckDB and a future BigQuery/Snowflake instance can read the same raw layer.
 - **Document-extraction example** — landing a PDF invoice, extracting structured fields with a hosted model, joining the result against the lending models.

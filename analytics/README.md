@@ -25,7 +25,7 @@ uv pip install anthropic duckdb pyyaml pandas
 export ANTHROPIC_API_KEY=sk-ant-...   # or add to .env
 ```
 
-`prod.duckdb` must already exist in `transformation/dbt/` — build it with `dbt build` first ([setup guide](../docs/setup.md#4-build-the-warehouse-with-dbt)).
+`prod.duckdb` must already exist in `transformation/dbt/` — build it with `dbt build` first ([setup guide](../docs/setup.md)).
 
 ## Use it
 
@@ -51,20 +51,56 @@ python analytics/query.py --show-sql "Drawdowns by month over the last year"
 | Comparisons | `"Which customers have the highest average repayment lag (with at least 5 scheduled repayments)?"` |
 | Open-ended | `"Are there any customers whose total drawn exceeds their facility limit?"` |
 
-## Sample run
+## Worked examples (real output)
 
-```
-$ python analytics/query.py --show-sql "How many active credit facilities are over 100% utilized?"
---- SQL ---
+### 1. Simple aggregation — "How many active credit facilities are over 100% utilized?"
+
+```sql
 SELECT COUNT(*) AS overutilized_active_facilities
 FROM main_marts.dim_credit_facilities
 WHERE facility_status = 'active'
   AND is_orphaned = FALSE
   AND current_utilization_pct > 100;
---- result ---
+```
+```
  overutilized_active_facilities
                               7
 ```
+
+### 2. Time series — "Drawdown count and total amount per month for the last 6 months"
+
+```sql
+SELECT date_trunc('month', drawdown_date) AS month,
+       COUNT(*)                           AS drawdown_count,
+       SUM(amount)                        AS total_amount
+FROM main_marts.fct_drawdowns
+WHERE is_orphaned = FALSE
+  AND drawdown_date >= date_trunc('month', current_date - INTERVAL 5 MONTH)
+GROUP BY 1 ORDER BY 1;
+```
+```
+     month  drawdown_count  total_amount
+2026-01-01             113  1.191175e+09
+```
+
+### 3. Window function — "What share of total facility limit is held by the top 3 customers?"
+
+```sql
+SELECT SUM(CASE WHEN rnk <= 3 THEN total_facility_limit ELSE 0 END)
+       / SUM(total_facility_limit) * 100 AS top3_share_pct
+FROM (
+  SELECT customer_id, total_facility_limit,
+         RANK() OVER (ORDER BY total_facility_limit DESC) AS rnk
+  FROM main_marts.dim_customers
+  WHERE total_facility_limit IS NOT NULL
+) ranked;
+```
+```
+ top3_share_pct
+      74.598916
+```
+
+> 75 % of the book sits with three customers. In production this is the kind of concentration-risk signal that would page the credit team — answered here by typing one English sentence.
 
 ## What the model gets right (and where it stumbles)
 
