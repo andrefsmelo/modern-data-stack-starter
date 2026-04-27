@@ -4,6 +4,7 @@ This file helps AI agents navigate the repository quickly.
 
 ## Architecture & Design
 
+- **[docs/setup.md](docs/setup.md)** — end-to-end setup walkthrough assuming raw data is already in S3 (skips ingestion). Use when bringing the stack up on a new machine or environment.
 - **[docs/architecture.md](docs/architecture.md)** — full architecture: phase plans, layers, cost estimates, data flow, conventions, naming, secrets, environments, data quality severities.
 - **[docs/ingestion.md](docs/ingestion.md)** — ingestion-tool landscape (managed, OSS, code-first, CDC, OCR / document AI), pros/cons, and the decision matrix for picking one. Use when reasoning about ingestion choices.
 - **[docs/orchestration.md](docs/orchestration.md)** — ephemeral compute pattern, GitHub Actions pricing math, escape hatches (Lambda, Fargate, Modal, Cloud Run), and orchestration anti-patterns. Use when reasoning about how a job runs, not what it does.
@@ -17,7 +18,8 @@ This file helps AI agents navigate the repository quickly.
 modern-data-stack-starter/
 ├── ingestion/            # Airbyte configs, dlt pipelines, custom Python scripts
 ├── transformation/       # dbt project (models, tests, schema.yml)
-├── orchestration/        # GitHub Actions workflows (cron schedules, dbt jobs)
+├── orchestration/        # Orchestration docs and helpers (workflows live in .github/workflows/)
+├── .github/workflows/    # GitHub Actions: ingest.yml (manual), dbt-build.yml (cron + manual)
 ├── visualization/        # Metabase dashboard exports and configs
 ├── docs/
 │   ├── architecture.md             # ← full architecture (start here)

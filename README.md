@@ -2,7 +2,7 @@
 
 An end-to-end analytics platform built around a realistic fintech dataset. Synthetic lending, banking, and payments data flows from S3 through dbt and DuckDB into Metabase dashboards — all on a stack that runs for ~$30/month and makes every architectural trade-off explicit.
 
-> **Status** — ingestion, storage, transformation, and visualization are runnable end-to-end. Orchestration (scheduled GitHub Actions workflows) is the next milestone; the design is captured in [docs/orchestration.md](docs/orchestration.md).
+> **Status** — ingestion, storage, transformation, visualization, and orchestration are all runnable end-to-end. Workflows live in [`.github/workflows/`](.github/workflows/); the design is in [docs/orchestration.md](docs/orchestration.md) and a step-by-step setup walkthrough is in [docs/setup.md](docs/setup.md).
 
 -----
 
@@ -44,8 +44,8 @@ The dbt project transforms this into a small star schema:
 | Storage         | Amazon S3, Parquet (Iceberg-ready)    | Open format, partition layout compatible with Iceberg later   |
 | Transformation  | dbt Core + DuckDB                     | Zero license cost; DuckDB handles 100s of GB on one machine   |
 | Visualization   | Metabase (self-hosted)                | Free, self-contained, ships with the repo                     |
-| Orchestration   | GitHub Actions cron *(planned)*       | Ephemeral runners, $0 in the free tier — see docs             |
-| Observability   | GitHub Actions → Slack *(planned)*    | Surface failures where the team already lives                 |
+| Orchestration   | GitHub Actions cron                   | Ephemeral runners, $0 in the free tier — see docs             |
+| Observability   | GitHub Actions → Slack                | Surface failures where the team already lives                 |
 
 The full reasoning — including the tools that were considered and rejected — lives in [docs/architecture.md](docs/architecture.md).
 
@@ -109,7 +109,9 @@ modern-data-stack-starter/
 │               ├── facts/        # fct_drawdowns, fct_repayments, fct_fx_transactions
 │               └── dimensions/   # dim_customers, dim_credit_facilities
 ├── visualization/                # Metabase setup, dashboard provisioning, DuckDB driver
-├── docs/                         # architecture, ingestion landscape, orchestration, ADRs, dataset spec
+├── orchestration/                # orchestration docs and helpers
+├── .github/workflows/            # GitHub Actions: ingest.yml (manual), dbt-build.yml (cron)
+├── docs/                         # architecture, ingestion landscape, orchestration, setup guide, ADRs
 ├── docker-compose.yml            # Metabase + DuckDB
 └── .env.example
 ```
@@ -131,6 +133,5 @@ When those constraints stop being the right ones (bigger team, bigger data, real
 
 ## What's next
 
-- **Orchestration.** GitHub Actions workflows that run the synthetic generator on cron, materialise dbt against `prod.duckdb`, and refresh Metabase. Design is in [docs/orchestration.md](docs/orchestration.md); workflows will live under `.github/workflows/` once implemented.
 - **Iceberg layer** on top of S3, so DuckDB and a future BigQuery/Snowflake instance can read the same raw layer.
 - **Document-extraction example** — landing a PDF invoice, extracting structured fields with a hosted model, joining the result against the lending models.

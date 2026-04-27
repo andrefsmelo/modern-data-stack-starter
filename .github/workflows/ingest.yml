@@ -1,0 +1,71 @@
+name: ingest
+
+# Manual-only: this repo's "ingestion" is a synthetic generator, so re-running
+# on a cron just regenerates seeded data. In a real deployment, swap the body
+# for a `dlt`/Airbyte job and add a `schedule:` block. See docs/orchestration.md.
+on:
+  workflow_dispatch:
+    inputs:
+      seed:
+        description: 'Random seed for reproducibility'
+        required: false
+        default: '42'
+      days:
+        description: 'Number of days to generate'
+        required: false
+        default: '30'
+      start_date:
+        description: 'Start date (YYYY-MM-DD)'
+        required: false
+        default: '2026-01-01'
+      format:
+        description: 'Output format'
+        required: false
+        default: 'raw_events'
+        type: choice
+        options:
+          - raw_events
+          - flat
+          - both
+
+permissions:
+  contents: read
+
+jobs:
+  ingest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    concurrency:
+      group: ingest
+      cancel-in-progress: false
+    env:
+      BUCKET: ${{ vars.S3_BUCKET }}
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      AWS_REGION: ${{ vars.AWS_REGION }}
+      SEED: ${{ inputs.seed }}
+      DAYS: ${{ inputs.days }}
+      START_DATE: ${{ inputs.start_date }}
+      FORMAT: ${{ inputs.format }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+
+      - name: Install Python dependencies
+        run: pip install faker numpy pandas pyarrow
+
+      - name: Generate and push to S3
+        run: ./ingestion/scripts/push_to_s3.sh
+
+      - name: Notify Slack on failure
+        if: failure() && env.SLACK_WEBHOOK_URL != ''
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        run: |
+          curl -sS -X POST -H 'Content-Type: application/json' \
+            --data "{\"text\":\":x: ingest failed — <${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}|run #${GITHUB_RUN_NUMBER}>\"}" \
+            "$SLACK_WEBHOOK_URL"
