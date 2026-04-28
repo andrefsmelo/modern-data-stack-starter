@@ -100,7 +100,7 @@ jobs:
           STATUS="$DBT_STATUS"
           if [ "$STATUS" != "success" ]; then STATUS="failure"; fi
           DURATION=$(( $(date +%s) - ${DBT_START:-$(date +%s)} ))
-          python orchestration/scripts/notify_slack.py \
+          python "$GITHUB_WORKSPACE/orchestration/scripts/notify_slack.py" \
             --status "$STATUS" \
             --job "dbt-build" \
             --run-url "$GITHUB_RUN_URL" \
