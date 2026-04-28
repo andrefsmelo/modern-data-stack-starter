@@ -84,7 +84,15 @@ cd transformation/dbt && dbt docs generate && dbt docs serve
 
 ## Quick start
 
-Open the warehouse with the DuckDB CLI:
+If you don't already have `prod.duckdb` locally, pull the latest CI build:
+
+```bash
+aws s3 cp "s3://${S3_BUCKET}/state/prod.duckdb" transformation/dbt/prod.duckdb
+```
+
+(or build it from scratch — see [`docs/setup.md` step 4](setup.md#4-build-the-warehouse-with-dbt).)
+
+Then open it with the DuckDB CLI:
 
 ```bash
 duckdb transformation/dbt/prod.duckdb

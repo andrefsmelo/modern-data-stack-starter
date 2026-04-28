@@ -25,7 +25,10 @@ uv pip install anthropic duckdb pyyaml pandas
 export ANTHROPIC_API_KEY=sk-ant-...   # or add to .env
 ```
 
-`prod.duckdb` must already exist in `transformation/dbt/` — build it with `dbt build` first ([setup guide](../docs/setup.md)).
+`prod.duckdb` must already exist in `transformation/dbt/`. Two ways to get it there:
+
+- **Pull from S3** (recommended for consumers): `aws s3 cp "s3://${S3_BUCKET}/state/prod.duckdb" transformation/dbt/prod.duckdb`. The [`dbt-build` workflow](../.github/workflows/dbt-build.yml) refreshes that object every 6 hours.
+- **Build it yourself** with `dbt build` — see the [setup guide](../docs/setup.md). Needed only if you don't have a CI run yet or are testing model changes.
 
 ## Use it
 
