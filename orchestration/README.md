@@ -9,7 +9,7 @@ For the rationale, pricing math, and escape hatches (Lambda, Fargate, Modal, Clo
 | File | Trigger | Purpose |
 |---|---|---|
 | [`.github/workflows/ingest.yml`](../.github/workflows/ingest.yml) | manual (`workflow_dispatch`) | Generates synthetic data and pushes to S3. Manual-only because the generator is seeded — a cron would just regenerate the same data. Swap the body for `dlt`/Airbyte and add `schedule:` for a real source. |
-| [`.github/workflows/dbt-build.yml`](../.github/workflows/dbt-build.yml) | cron `0 */6 * * *` + manual | Downloads `prod.duckdb` from S3, runs `dbt build`, exports each mart as a Parquet file to `s3://${S3_BUCKET}/marts/<table>/<table>.parquet` (so non-DuckDB engines can read them), then uploads `prod.duckdb` back. Concurrency capped to 1 — see [ADR-0001](../docs/decisions/0001-duckdb-execution.md). |
+| [`.github/workflows/dbt-build.yml`](../.github/workflows/dbt-build.yml) | cron `0 */6 * * *` + manual | Downloads `prod.duckdb` from S3, runs `dbt build`, exports each mart as a Parquet file to `s3://${S3_BUCKET}/marts/<table>/<table>.parquet` (so non-DuckDB engines can read them — Glue/Athena setup in [`transformation/exports/README.md`](../transformation/exports/README.md#consumer-registering-the-marts-in-aws-glue-one-time-per-aws-account--region)), then uploads `prod.duckdb` back. Concurrency capped to 1 — see [ADR-0001](../docs/decisions/0001-duckdb-execution.md). |
 
 ## Required configuration
 
