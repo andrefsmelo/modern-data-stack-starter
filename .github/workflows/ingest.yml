@@ -61,14 +61,26 @@ jobs:
       - name: Install Python dependencies
         run: uv pip install --system faker numpy pandas pyarrow
 
+      - name: Record start time
+        run: echo "INGEST_START=$(date +%s)" >> "$GITHUB_ENV"
+
       - name: Generate and push to S3
         run: ./ingestion/scripts/push_to_s3.sh
 
-      - name: Notify Slack on failure
-        if: failure() && env.SLACK_WEBHOOK_URL != ''
+      - name: Notify Slack
+        if: always() && env.SLACK_WEBHOOK_URL != ''
         env:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          INGEST_STATUS: ${{ job.status }}
+          GITHUB_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          GITHUB_RUN_NUMBER: ${{ github.run_number }}
         run: |
-          curl -sS -X POST -H 'Content-Type: application/json' \
-            --data "{\"text\":\":x: ingest failed — <${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}|run #${GITHUB_RUN_NUMBER}>\"}" \
-            "$SLACK_WEBHOOK_URL"
+          STATUS="$INGEST_STATUS"
+          if [ "$STATUS" != "success" ]; then STATUS="failure"; fi
+          DURATION=$(( $(date +%s) - ${INGEST_START:-$(date +%s)} ))
+          python orchestration/scripts/notify_slack.py \
+            --status "$STATUS" \
+            --job "ingest" \
+            --run-url "$GITHUB_RUN_URL" \
+            --run-number "$GITHUB_RUN_NUMBER" \
+            --duration "$DURATION"

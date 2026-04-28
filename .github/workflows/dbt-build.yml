@@ -63,8 +63,15 @@ jobs:
       - name: dbt deps
         run: dbt deps --target "$DBT_TARGET"
 
+      - name: Record start time
+        run: echo "DBT_START=$(date +%s)" >> "$GITHUB_ENV"
+
       - name: dbt build
         run: dbt build --target "$DBT_TARGET"
+
+      - name: dbt source freshness
+        if: always()
+        run: dbt source freshness --target "$DBT_TARGET" || true
 
       - name: Export marts to S3 as Parquet
         if: success()
@@ -82,11 +89,23 @@ jobs:
           path: transformation/dbt/target/
           retention-days: 7
 
-      - name: Notify Slack on failure
-        if: failure() && env.SLACK_WEBHOOK_URL != ''
+      - name: Notify Slack
+        if: always() && env.SLACK_WEBHOOK_URL != ''
         env:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          DBT_STATUS: ${{ job.status }}
+          GITHUB_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          GITHUB_RUN_NUMBER: ${{ github.run_number }}
         run: |
-          curl -sS -X POST -H 'Content-Type: application/json' \
-            --data "{\"text\":\":x: dbt-build failed — <${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}|run #${GITHUB_RUN_NUMBER}>\"}" \
-            "$SLACK_WEBHOOK_URL"
+          STATUS="$DBT_STATUS"
+          if [ "$STATUS" != "success" ]; then STATUS="failure"; fi
+          DURATION=$(( $(date +%s) - ${DBT_START:-$(date +%s)} ))
+          python orchestration/scripts/notify_slack.py \
+            --status "$STATUS" \
+            --job "dbt-build" \
+            --run-url "$GITHUB_RUN_URL" \
+            --run-number "$GITHUB_RUN_NUMBER" \
+            --duration "$DURATION" \
+            --dbt-results target/run_results.json \
+            --dbt-manifest target/manifest.json \
+            --freshness-results target/sources.json
