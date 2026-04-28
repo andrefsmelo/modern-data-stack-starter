@@ -162,22 +162,25 @@ rm prod.duckdb && DBT_DUCKDB_PATH=prod.duckdb dbt build --profiles-dir . --targe
 
 ## Step 6B — Wire up GitHub Actions (optional, Path B)
 
-The workflows in [`.github/workflows/`](../.github/workflows/) run dbt on a 6-hour cron and round-trip `prod.duckdb` through `s3://${S3_BUCKET}/state/prod.duckdb`. Layout, conventions, and ADR references: [`orchestration/README.md`](../orchestration/README.md).
+The workflows in [`.github/workflows/`](../.github/workflows/) run dbt on a 6-hour cron and round-trip `prod.duckdb` through `s3://${S3_BUCKET}/state/prod.duckdb`. Authoritative configuration reference (what each Variable / Secret is for, the IAM policy, and the error → fix mapping) is in [`orchestration/README.md`](../orchestration/README.md#required-configuration).
 
-In your repo's GitHub settings (**Settings → Secrets and variables → Actions**):
+Short version — set in your repo's GitHub settings (**Settings → Secrets and variables → Actions**):
 
-**Variables**
-- `S3_BUCKET` — e.g. `acme-data-prod`
-- `AWS_REGION` — e.g. `eu-west-1`
+| Tab        | Name                    | Required | Value                            |
+|------------|-------------------------|----------|----------------------------------|
+| Variables  | `S3_BUCKET`             | yes      | e.g. `acme-data-prod`            |
+| Variables  | `AWS_REGION`            | yes      | e.g. `eu-west-1`                 |
+| Secrets    | `AWS_ACCESS_KEY_ID`     | yes      | IAM key with the [policy in the orchestration doc](../orchestration/README.md#iam-policy-the-aws-key-needs) |
+| Secrets    | `AWS_SECRET_ACCESS_KEY` | yes      |                                  |
+| Secrets    | `SLACK_WEBHOOK_URL`     | no       | failure-notification webhook     |
 
-**Secrets**
-- `AWS_ACCESS_KEY_ID`
-- `AWS_SECRET_ACCESS_KEY`
-- `SLACK_WEBHOOK_URL` *(optional — failure notifications no-op when unset)*
+Don't put a key in the wrong tab — Variables are visible in workflow logs.
 
 Then push your repo to GitHub. To trigger the first run immediately:
 
 > **Actions** tab → **dbt-build** → **Run workflow** → leave defaults → **Run**.
+
+If it fails, the [common failure modes table](../orchestration/README.md#common-failure-modes-error--fix) maps each error message to the missing config.
 
 ---
 
