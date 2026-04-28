@@ -33,10 +33,17 @@ Both share the same `analytics/query_lib.py` — NL→SQL mapping, Claude prompt
 ### Setup
 
 ```bash
-uv pip install anthropic duckdb pyyaml pandas
+# Activate the project venv (deps are already installed there)
+source .venv/bin/activate
+
+# Or, if creating from scratch:
+# uv venv && source .venv/bin/activate
+# uv pip install anthropic duckdb pyyaml pandas
 
 export ANTHROPIC_API_KEY=sk-ant-...   # or add to .env
 ```
+
+> Running `python analytics/...` with the system interpreter will fail with `ModuleNotFoundError`. Always use the venv (`source .venv/bin/activate`) or invoke `.venv/bin/python` directly.
 
 `prod.duckdb` must already exist in `transformation/dbt/`. Two ways to get it there:
 
@@ -119,15 +126,21 @@ On startup, the bot downloads `prod.duckdb` from S3 (if `S3_BUCKET` is set) or u
 ### Running the bot
 
 ```bash
-# Add tokens to .env or export them
-set -a; source .env; set +a
+# Activate the project venv (deps are already installed there)
+source .venv/bin/activate
 
-# Install dependencies (if not already installed)
-uv pip install slack_bolt slack_sdk anthropic duckdb pyyaml pandas
+# If creating the venv from scratch:
+# uv venv && source .venv/bin/activate
+# uv pip install slack_bolt slack_sdk anthropic duckdb pyyaml pandas
+
+# Load tokens from .env
+set -a; source .env; set +a
 
 # Start the bot
 python analytics/slack_bot.py
 ```
+
+> If you see `ModuleNotFoundError: No module named 'slack_bolt'`, you're using the system Python. Activate the venv (`source .venv/bin/activate`) or run `.venv/bin/python analytics/slack_bot.py`.
 
 Output:
 ```
