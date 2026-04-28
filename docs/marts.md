@@ -444,3 +444,32 @@ python analytics/query.py "How many active facilities are over 100% utilized?"
 ```
 
 See [`analytics/README.md`](../analytics/README.md) for setup, full example list, and limits.
+
+---
+
+## Querying from outside DuckDB
+
+Each successful `dbt build` (locally or in CI via [`.github/workflows/dbt-build.yml`](../.github/workflows/dbt-build.yml)) also exports every mart as a single Parquet file to:
+
+```
+s3://${S3_BUCKET}/marts/<table_name>/<table_name>.parquet
+```
+
+That's an open columnar format — readable directly by any modern engine. Three flavours of consumer:
+
+**1. Direct Parquet read (no catalog).** Works with DuckDB, pandas, Polars, Spark, and anything else with an S3 + Parquet reader:
+
+```sql
+-- DuckDB
+SELECT COUNT(*) FROM read_parquet('s3://${S3_BUCKET}/marts/dim_customers/dim_customers.parquet');
+```
+
+```python
+# Polars
+import polars as pl
+df = pl.read_parquet("s3://${S3_BUCKET}/marts/dim_customers/dim_customers.parquet")
+```
+
+**2. AWS Glue Data Catalog → Athena, Snowflake, BigQuery, Trino, Spark.** Register the marts as external tables in Glue once, then any Glue-aware engine sees them. The DDL is committed under [`transformation/exports/glue_ddl/`](../transformation/exports/glue_ddl/); the full setup walkthrough (Athena Query Editor click-by-click, plus a CLI loop) is in [`transformation/exports/README.md`](../transformation/exports/README.md#consumer-registering-the-marts-in-aws-glue-one-time-per-aws-account--region).
+
+**3. The natural-language CLI.** Already covered above (`analytics/query.py`) — uses DuckDB locally; you don't need Glue for it.
