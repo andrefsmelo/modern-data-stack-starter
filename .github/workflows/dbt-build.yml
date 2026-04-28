@@ -66,6 +66,10 @@ jobs:
       - name: dbt build
         run: dbt build --target "$DBT_TARGET"
 
+      - name: Export marts to S3 as Parquet
+        if: success()
+        run: python ../exports/export_marts.py
+
       - name: Upload prod.duckdb to S3
         if: success()
         run: aws s3 cp prod.duckdb "s3://${S3_BUCKET}/state/prod.duckdb"
