@@ -1,15 +1,29 @@
-WITH active_subscriptions AS (
+-- ARR is computed against the dataset's most recent ingestion timestamp
+-- rather than wall-clock CURRENT_TIMESTAMP, so a stale snapshot doesn't
+-- collapse every customer's ARR to zero once the data ages past 30 days.
+WITH as_of AS (
+
+    SELECT LEAST(
+        CURRENT_TIMESTAMP,
+        COALESCE(MAX(_ingested_at), CURRENT_TIMESTAMP)
+    ) AS as_of_date
+    FROM {{ ref('stg_payments__subscriptions') }}
+
+),
+
+active_subscriptions AS (
 
     SELECT
-        customer_id,
-        subscription_id,
-        mrr_amount,
-        currency,
-        billing_period_start,
-        billing_period_end
-    FROM {{ ref('stg_payments__subscriptions') }}
-    WHERE status = 'active'
-      AND billing_period_end > CURRENT_TIMESTAMP
+        s.customer_id,
+        s.subscription_id,
+        s.mrr_amount,
+        s.currency,
+        s.billing_period_start,
+        s.billing_period_end
+    FROM {{ ref('stg_payments__subscriptions') }} s
+    CROSS JOIN as_of
+    WHERE s.status = 'active'
+      AND s.billing_period_end > as_of.as_of_date
 
 ),
 
@@ -65,14 +79,15 @@ current_arr AS (
 past_subscriptions AS (
 
     SELECT
-        customer_id,
-        subscription_id,
-        mrr_amount,
-        currency
-    FROM {{ ref('stg_payments__subscriptions') }}
-    WHERE status = 'active'
-      AND billing_period_start <= CURRENT_TIMESTAMP - INTERVAL '30' DAY
-      AND billing_period_end > CURRENT_TIMESTAMP - INTERVAL '30' DAY
+        s.customer_id,
+        s.subscription_id,
+        s.mrr_amount,
+        s.currency
+    FROM {{ ref('stg_payments__subscriptions') }} s
+    CROSS JOIN as_of
+    WHERE s.status = 'active'
+      AND s.billing_period_start <= as_of.as_of_date - INTERVAL '30' DAY
+      AND s.billing_period_end > as_of.as_of_date - INTERVAL '30' DAY
 
 ),
 
