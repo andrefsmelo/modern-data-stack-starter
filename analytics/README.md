@@ -6,8 +6,8 @@ Natural-language query helper for `prod.duckdb`. Send a question, get a result b
 
 ```
  your question                                    Claude              SQL          DuckDB              DataFrame
- (English)              ───►  build_schema_   ───► (Sonnet 4.6, ───►  string  ───►  read-only      ───► to stdout
-                              context()            schema             that          (prod.duckdb)
+ (English)              ───►  build_schema_   ───► (Sonnet 4.6, ───►  string  ───►  read-only      ───► to stdout / Slack
+                               context()            schema             that          (prod.duckdb)
  transformation/dbt/    ───►  18 tables,            cached as        runs against
  models/**/schema.yml         ~16 KB                system prompt)
 ```
@@ -17,7 +17,20 @@ Natural-language query helper for `prod.duckdb`. Send a question, get a result b
 3. Run the returned SQL against `prod.duckdb` in **read-only mode**.
 4. Print the result with `pandas.DataFrame.to_string`.
 
-## Setup
+## Two interfaces
+
+| Interface | File | When to use |
+|-----------|------|-------------|
+| **CLI** | `analytics/query.py` | Local development, ad-hoc queries, scripting |
+| **Slack** | `analytics/slack_bot.py` | Team access, no terminal needed, on-the-fly queries from any device |
+
+Both share the same `analytics/query_lib.py` — NL→SQL mapping, Claude prompt, DuckDB execution.
+
+---
+
+## CLI: `query.py`
+
+### Setup
 
 ```bash
 uv pip install anthropic duckdb pyyaml pandas
@@ -30,7 +43,7 @@ export ANTHROPIC_API_KEY=sk-ant-...   # or add to .env
 - **Pull from S3** (recommended for consumers): `aws s3 cp "s3://${S3_BUCKET}/state/prod.duckdb" transformation/dbt/prod.duckdb`. The [`dbt-build` workflow](../.github/workflows/dbt-build.yml) refreshes that object every 6 hours.
 - **Build it yourself** with `dbt build` — see the [setup guide](../docs/setup.md). Needed only if you don't have a CI run yet or are testing model changes.
 
-## Use it
+### Use it
 
 ```bash
 python analytics/query.py "Top 10 customers by ARR"
@@ -39,7 +52,7 @@ python analytics/query.py --show-sql "Drawdowns by month over the last year"
 
 `--show-sql` prints the SQL Claude generated before showing the result — useful for sanity-checking and learning the schema.
 
-## Example questions to try
+### Example questions to try
 
 | Intent | Question |
 |---|---|
@@ -54,58 +67,7 @@ python analytics/query.py --show-sql "Drawdowns by month over the last year"
 | Comparisons | `"Which customers have the highest average repayment lag (with at least 5 scheduled repayments)?"` |
 | Open-ended | `"Are there any customers whose total drawn exceeds their facility limit?"` |
 
-## Worked examples (real output)
-
-### 1. Simple aggregation — "How many active credit facilities are over 100% utilized?"
-
-```sql
-SELECT COUNT(*) AS overutilized_active_facilities
-FROM main_marts.dim_credit_facilities
-WHERE facility_status = 'active'
-  AND is_orphaned = FALSE
-  AND current_utilization_pct > 100;
-```
-```
- overutilized_active_facilities
-                              7
-```
-
-### 2. Time series — "Drawdown count and total amount per month for the last 6 months"
-
-```sql
-SELECT date_trunc('month', drawdown_date) AS month,
-       COUNT(*)                           AS drawdown_count,
-       SUM(amount)                        AS total_amount
-FROM main_marts.fct_drawdowns
-WHERE is_orphaned = FALSE
-  AND drawdown_date >= date_trunc('month', current_date - INTERVAL 5 MONTH)
-GROUP BY 1 ORDER BY 1;
-```
-```
-     month  drawdown_count  total_amount
-2026-01-01             113  1.191175e+09
-```
-
-### 3. Window function — "What share of total facility limit is held by the top 3 customers?"
-
-```sql
-SELECT SUM(CASE WHEN rnk <= 3 THEN total_facility_limit ELSE 0 END)
-       / SUM(total_facility_limit) * 100 AS top3_share_pct
-FROM (
-  SELECT customer_id, total_facility_limit,
-         RANK() OVER (ORDER BY total_facility_limit DESC) AS rnk
-  FROM main_marts.dim_customers
-  WHERE total_facility_limit IS NOT NULL
-) ranked;
-```
-```
- top3_share_pct
-      74.598916
-```
-
-> 75 % of the book sits with three customers. In production this is the kind of concentration-risk signal that would page the credit team — answered here by typing one English sentence.
-
-## What the model gets right (and where it stumbles)
+### What the model gets right (and where it stumbles)
 
 The script's quality is bounded by the descriptions in `schema.yml`. Things it handles well:
 
@@ -119,6 +81,82 @@ Things to watch for:
 - If a column has a vague description, the model may pick a different (also-plausible) column. Improve the description in `schema.yml` and the next call will be sharper.
 - Multi-step analysis (e.g. "build a cohort table, then compute retention by month") is better written by hand — see [`docs/marts.md`](../docs/marts.md) for SQL patterns.
 - The model can occasionally miss schema details when the question implies a table that doesn't exist (e.g. asking about churn when no churn fact is modelled). Run with `--show-sql` to catch this; the SQL will read fine but reference something fictitious.
+
+---
+
+## Slack bot: `slack_bot.py`
+
+A local process that connects to Slack via Socket Mode (no public URL, no server). Team members type `/query <question>` in any channel the bot is in and get results inline.
+
+### How it works
+
+```
+Slack user types: /query Top 10 customers by ARR
+  → Slack sends event via WebSocket (Socket Mode)
+    → slack_bot.py (local process)
+      → Claude API: NL → SQL (same schema context as CLI)
+        → DuckDB: runs SQL against prod.duckdb
+          → Result formatted as Slack blocks and posted back
+```
+
+On startup, the bot downloads `prod.duckdb` from S3 (if `S3_BUCKET` is set) or uses the local copy.
+
+### One-time Slack App setup (~5 minutes)
+
+1. Go to https://api.slack.com/apps → **Create New App** → **From scratch**.
+2. Name it (e.g. `data-query-bot`), pick your workspace → **Create App**.
+3. **Socket Mode** → Enable → copy the **App-Level Token** (starts with `xapp-`). This is `SLACK_APP_TOKEN`.
+4. **OAuth & Permissions** → add these Bot Token Scopes:
+   - `chat:write`
+   - `commands`
+5. **Install to Workspace** → copy the **Bot User OAuth Token** (starts with `xoxb-`). This is `SLACK_BOT_TOKEN`.
+6. **Slash Commands** → Create New Command:
+   - Command: `/query`
+   - Request URL: `https://placeholder` (Socket Mode handles it; the URL is unused but required)
+   - Short description: `Ask a natural-language question about the data warehouse`
+7. In Slack, invite the bot to a channel: `/invite @data-query-bot`.
+
+### Running the bot
+
+```bash
+# Add tokens to .env or export them
+set -a; source .env; set +a
+
+# Install dependencies (if not already installed)
+uv pip install slack_bolt slack_sdk anthropic duckdb pyyaml pandas
+
+# Start the bot
+python analytics/slack_bot.py
+```
+
+Output:
+```
+==> Using .../prod.duckdb (XX.X MB)
+==> Starting Slack bot (Socket Mode)...
+⚡ Bolt app is running!
+```
+
+Now type `/query Top 10 customers by ARR` in Slack. The bot will:
+1. Acknowledge with "Running query..."
+2. Send the question to Claude to generate SQL
+3. Run the SQL against DuckDB
+4. Post the result as formatted Slack blocks (question + SQL + result)
+
+**Error handling:** If the SQL fails, the bot posts the generated SQL and the error message so you can debug.
+
+### Stopping the bot
+
+`Ctrl+C` — zero cost when not running.
+
+### Cost
+
+| Component | Cost |
+|-----------|------|
+| Slack Bot | $0 (free plan) |
+| DuckDB | $0 |
+| Claude API | ~1¢/query (cold cache), ~0.1¢/query (warm) |
+
+---
 
 ## Costs and limits
 

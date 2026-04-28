@@ -1,0 +1,12 @@
+# ADR 0004 — Slack /query Bot (Local Process + DuckDB)
+
+| | |
+|---|---|
+|**Date**|2026-04-28|
+|**Status**|Accepted|
+|**Context**|The CLI tool (`analytics/query.py`) lets a data engineer ask natural-language questions against `prod.duckdb`. The team wants the same capability from Slack so non-terminal users can query the warehouse on-the-fly.|
+|**Decision**|Build a Slack Bolt app (`analytics/slack_bot.py`) that runs as a local process via Socket Mode. The `/query` slash command sends the question to Claude (same NL→SQL pipeline), runs the SQL against DuckDB, and posts the result back as Slack blocks. On startup, the bot downloads `prod.duckdb` from S3 if `S3_BUCKET` is configured.|
+|**Rationale**|1. **Zero infra cost** — the process runs on a developer's machine; nothing runs when nobody is querying. 2. **Socket Mode** — no public URL, no Lambda, no API Gateway. A WebSocket is enough. 3. **DuckDB over Athena** — truly zero marginal cost per query (Athena has no free tier and charges $5/TB). DuckDB is already in the stack and marts are small. 4. **Reuses existing code** — `query_lib.py` shares schema building and Claude prompting with the CLI. 5. **Local process** matches Phase 1 philosophy — "run when needed, stop when not".|
+|**Consequences**|- The bot is only available when a team member is running it locally. For Phase 1 (single data engineer), this is acceptable. \<br>- `prod.duckdb` is snapshot at startup; data is up to 6 hours stale depending on the last dbt-build run. \<br>- Added dependency on `slack_bolt` and `slack_sdk`. \<br>- Claude API costs ~1¢/query; no way around this for NL→SQL.|
+|**Alternatives considered**|1. **Athena backend** — always-fresh data, but no free tier and adds AWS complexity. Deferred to Phase 2 when query volume justifies it. 2. **Lambda + API Gateway** — ephemeral, but Slash commands have a 3-second response deadline; requires async pattern (acknowledge → query → post result). More complex for no cost saving over local. 3. **Always-on VM** — contradicts the ephemeral philosophy and adds $5-10/mo for something used infrequently.|
+|**Evolution trigger**|When > 1 person regularly uses the bot and needs it always available, migrate to Lambda + Athena. When query volume exceeds ~1000/day, evaluate caching or a dedicated query engine.|
