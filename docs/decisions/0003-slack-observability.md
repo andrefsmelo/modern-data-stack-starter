@@ -1,0 +1,11 @@
+# ADR 0003 — Slack Observability via GitHub Actions
+
+| | |
+|---|---|
+|**Date**|2026-04-28|
+|**Status**|Accepted|
+|**Context**|Phase 1 architecture calls for "GitHub Actions notifications → Slack" as the observability layer. The existing workflows sent a one-line `curl` on failure only. We need richer status reporting on every run (success and failure) so the team knows pipeline health without checking GitHub Actions manually.|
+|**Decision**|Replace inline `curl` calls with a reusable Python script (`orchestration/scripts/notify_slack.py`) that sends structured Slack messages on every workflow run — success or failure. The script reads dbt artifacts (`run_results.json`, `manifest.json`, `sources.json`) to include model/test/freshness details. Slack webhook URL is stored in GitHub Actions Secrets; notification is skipped gracefully if unset.|
+|**Rationale**|1. **Every run, not just failures** — silence is ambiguous. A green message confirms the pipeline is alive. 2. **No new infrastructure** — uses the same GitHub Actions triggers and the free Slack webhook tier. 3. **Structured beats raw** — model/test counts, freshness status, and duration are more actionable than "it failed". 4. **Severity routing** — `error`-level dbt tests block the pipeline (red message); `warn`-level tests pass the pipeline but appear in the success message for triage.|
+|**Consequences**|Adding `SLACK_WEBHOOK_URL` to GitHub Actions Secrets is now required for Slack notifications. Without it, notifications are silently skipped — no workflow breaks. The `notify_slack.py` script uses only stdlib (`urllib`, `json`, `os`) so no new dependencies are introduced. `dbt source freshness` runs in the dbt-build workflow as a non-blocking step — freshness failures surface in Slack but don't block downstream models.|
+|**Alternatives considered**|1. **Slack API (chat.postMessage)** — requires OAuth app, bot tokens, and more setup. Webhooks are simpler and sufficient for one-way notifications. 2. **Third-party services (Sentry, Datadog)** — premature for Phase 1. The architecture doc defers these to Trigger Ob2 (cross-system correlation needed). 3. **Daily digest workflow** — rejected; each run reports its own status immediately instead.|

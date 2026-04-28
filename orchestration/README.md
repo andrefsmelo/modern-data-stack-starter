@@ -9,7 +9,30 @@ For the rationale, pricing math, and escape hatches (Lambda, Fargate, Modal, Clo
 | File | Trigger | Purpose |
 |---|---|---|
 | [`.github/workflows/ingest.yml`](../.github/workflows/ingest.yml) | manual (`workflow_dispatch`) | Generates synthetic data and pushes to S3. Manual-only because the generator is seeded — a cron would just regenerate the same data. Swap the body for `dlt`/Airbyte and add `schedule:` for a real source. |
-| [`.github/workflows/dbt-build.yml`](../.github/workflows/dbt-build.yml) | cron `0 */6 * * *` + manual | Downloads `prod.duckdb` from S3, runs `dbt build`, exports each mart as a Parquet file to `s3://${S3_BUCKET}/marts/<table>/<table>.parquet` (so non-DuckDB engines can read them — Glue/Athena setup in [`transformation/exports/README.md`](../transformation/exports/README.md#consumer-registering-the-marts-in-aws-glue-one-time-per-aws-account--region)), then uploads `prod.duckdb` back. Concurrency capped to 1 — see [ADR-0001](../docs/decisions/0001-duckdb-execution.md). |
+| [`.github/workflows/dbt-build.yml`](../.github/workflows/dbt-build.yml) | cron `0 */6 * * *` + manual | Downloads `prod.duckdb` from S3, runs `dbt build`, runs `dbt source freshness`, exports each mart as a Parquet file to `s3://${S3_BUCKET}/marts/<table>/<table>.parquet` (so non-DuckDB engines can read them — Glue/Athena setup in [`transformation/exports/README.md`](../transformation/exports/README.md#consumer-registering-the-marts-in-aws-glue-one-time-per-aws-account--region)), then uploads `prod.duckdb` back. Concurrency capped to 1 — see [ADR-0001](../docs/decisions/0001-duckdb-execution.md). |
+
+## Slack Observability
+
+Both workflows send a Slack notification on **every run** (success or failure) via [`scripts/notify_slack.py`](scripts/notify_slack.py). The notification is skipped if `SLACK_WEBHOOK_URL` is unset.
+
+### Message content
+
+| Workflow | What's reported |
+|---|---|
+| `dbt-build` | Status, run link, duration, model/test pass/fail counts, freshness results |
+| `ingest` | Status, run link, duration |
+
+### Severity routing (dbt)
+
+- `severity: error` test failures → pipeline fails → Slack shows red/failure message
+- `severity: warn` test failures → pipeline succeeds → Slack shows green/success with warning details
+- Source freshness failures → reported in the Slack message but do not block the pipeline
+
+### Setup
+
+1. Create a Slack App with an incoming webhook in your workspace.
+2. Add `SLACK_WEBHOOK_URL` as a **GitHub Actions Secret** (Settings → Secrets → New repository secret).
+3. Run a workflow manually — you should see a message in the channel.
 
 ## Required configuration
 
@@ -30,7 +53,7 @@ The "Variables" tab is for non-sensitive values referenced as `${{ vars.X }}`; t
 |-------------------------|-----------------------|------------|-----------------------------------------------------------------------------------------------|
 | `AWS_ACCESS_KEY_ID`     | dbt-build, ingest     | required   | `HTTP 403 Forbidden ... AccessDenied ... No credentials are provided` from DuckDB httpfs      |
 | `AWS_SECRET_ACCESS_KEY` | dbt-build, ingest     | required   | same as above                                                                                 |
-| `SLACK_WEBHOOK_URL`     | dbt-build (notify)    | optional   | failure notification step is skipped; nothing else breaks                                     |
+| `SLACK_WEBHOOK_URL`     | dbt-build, ingest     | optional   | failure and success notifications are skipped; nothing else breaks                                     |
 
 ### IAM policy the AWS key needs
 
@@ -98,4 +121,4 @@ Per [`docs/orchestration.md`](../docs/orchestration.md#operational-conventions):
 - `timeout-minutes` set on every job
 - `concurrency.group` to prevent overlapping runs racing on shared state
 - `workflow_dispatch` on every workflow for manual backfill / debugging
-- Slack notification on failure (when `SLACK_WEBHOOK_URL` is set)
+- Slack notification on every run (when `SLACK_WEBHOOK_URL` is set)
