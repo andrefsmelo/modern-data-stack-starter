@@ -13,16 +13,74 @@ For the rationale, pricing math, and escape hatches (Lambda, Fargate, Modal, Clo
 
 ## Required configuration
 
-Set these in the repo's GitHub Actions settings (Settings → Secrets and variables → Actions):
+Set these in the repo: **Settings → Secrets and variables → Actions**.
 
-**Secrets**
-- `AWS_ACCESS_KEY_ID`
-- `AWS_SECRET_ACCESS_KEY`
-- `SLACK_WEBHOOK_URL` *(optional — failure notifications no-op if unset)*
+The "Variables" tab is for non-sensitive values referenced as `${{ vars.X }}`; the "Secrets" tab is for credentials referenced as `${{ secrets.X }}`. Don't put a key ID in the wrong tab — Variables are visible in workflow logs.
 
-**Variables**
-- `S3_BUCKET` — e.g. `acme-data-prod`
-- `AWS_REGION` — e.g. `eu-west-1`
+### Variables (Settings → Variables → New repository variable)
+
+| Name         | Used by                                       | Example          | Required for      | Symptom if unset / empty                                                                  |
+|--------------|-----------------------------------------------|------------------|-------------------|-------------------------------------------------------------------------------------------|
+| `S3_BUCKET`  | both workflows; `dbt` `read_raw_events` macro | `acme-data-prod` | every dbt run     | `IO Error: URL needs to contain a bucket name` from DuckDB on the first staging model     |
+| `AWS_REGION` | both workflows; profiles.yml httpfs settings  | `eu-west-1`      | every dbt run     | `S3 region not found` or unexpected redirect responses from DuckDB                        |
+
+### Secrets (Settings → Secrets → New repository secret)
+
+| Name                    | Used by               | Required?  | Symptom if unset                                                                              |
+|-------------------------|-----------------------|------------|-----------------------------------------------------------------------------------------------|
+| `AWS_ACCESS_KEY_ID`     | dbt-build, ingest     | required   | `HTTP 403 Forbidden ... AccessDenied ... No credentials are provided` from DuckDB httpfs      |
+| `AWS_SECRET_ACCESS_KEY` | dbt-build, ingest     | required   | same as above                                                                                 |
+| `SLACK_WEBHOOK_URL`     | dbt-build (notify)    | optional   | failure notification step is skipped; nothing else breaks                                     |
+
+### IAM policy the AWS key needs
+
+Minimum permissions on the bucket named in `S3_BUCKET`:
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ReadRawAndState",
+      "Effect": "Allow",
+      "Action": ["s3:GetObject", "s3:ListBucket"],
+      "Resource": [
+        "arn:aws:s3:::<bucket>",
+        "arn:aws:s3:::<bucket>/raw/*",
+        "arn:aws:s3:::<bucket>/state/*"
+      ]
+    },
+    {
+      "Sid": "WriteState",
+      "Effect": "Allow",
+      "Action": ["s3:PutObject"],
+      "Resource": "arn:aws:s3:::<bucket>/state/*"
+    },
+    {
+      "Sid": "WriteRawForIngest",
+      "Effect": "Allow",
+      "Action": ["s3:PutObject"],
+      "Resource": "arn:aws:s3:::<bucket>/raw/*"
+    }
+  ]
+}
+```
+
+`WriteRawForIngest` is only needed by the `ingest` workflow (the synthetic-data uploader). Drop it once a real ingestion source replaces the stub.
+
+### Quick check that everything is wired
+
+After setting the four required entries, kick off **Actions → dbt-build → Run workflow** manually. The first staging model hitting S3 is the canary — if it succeeds, all four are correct. If it fails, the error message maps 1:1 to the tables above.
+
+### Common failure modes (error → fix)
+
+| Error message in CI                                                                       | Root cause                                       | Fix                                                                       |
+|-------------------------------------------------------------------------------------------|--------------------------------------------------|---------------------------------------------------------------------------|
+| `IO Error: URL needs to contain a bucket name`                                            | `S3_BUCKET` Variable unset or empty              | Set `vars.S3_BUCKET` (Variables tab)                                      |
+| `HTTP 403 Forbidden ... AccessDenied ... No credentials are provided`                     | `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` Secrets unset, empty, or wrong | Set both Secrets (Secrets tab)                                            |
+| `HTTP 403 Forbidden` *but* credentials are set                                            | IAM policy too narrow — key can't read the prefix | Apply the IAM policy above                                                |
+| `Unable to locate credentials` from `aws s3 cp`                                           | same as above (the workflow's `aws` CLI step)    | Set both Secrets                                                          |
+| `Bucket location is not <region>`                                                         | `AWS_REGION` Variable doesn't match the bucket's actual region | Set `vars.AWS_REGION` to the bucket's region                              |
 
 ## State convention
 
