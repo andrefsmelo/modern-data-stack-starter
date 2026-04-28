@@ -78,7 +78,7 @@ jobs:
           STATUS="$INGEST_STATUS"
           if [ "$STATUS" != "success" ]; then STATUS="failure"; fi
           DURATION=$(( $(date +%s) - ${INGEST_START:-$(date +%s)} ))
-          python orchestration/scripts/notify_slack.py \
+          python "$GITHUB_WORKSPACE/orchestration/scripts/notify_slack.py" \
             --status "$STATUS" \
             --job "ingest" \
             --run-url "$GITHUB_RUN_URL" \
