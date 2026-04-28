@@ -80,15 +80,26 @@ def _dbt_summary(run_results, manifest):
 def _freshness_summary(freshness_results):
     if not freshness_results:
         return None
+    results = freshness_results.get("results", []) if isinstance(freshness_results, dict) else []
     lines = []
-    for source_name, meta in freshness_results.items():
-        for table_name, info in meta.get("tables", {}).items():
-            if "error" in info:
-                lines.append(f"  :warning: {source_name}.{table_name}: {info['error']}")
-            elif "max_loaded_at" in info:
-                age = info.get("age", "")
-                status = ":white_check_mark:" if info.get("status") == "pass" else ":warning:"
-                lines.append(f"  {status} {source_name}.{table_name} (age: {age})")
+    for result in results:
+        unique_id = result.get("unique_id", "")
+        parts = unique_id.split(".")
+        name = ".".join(parts[-2:]) if len(parts) >= 2 else unique_id
+        status = result.get("status", "")
+        if status in ("runtime error", "error"):
+            msg = result.get("message") or status
+            lines.append(f"  :warning: {name}: {msg}")
+            continue
+        age_seconds = result.get("max_loaded_at_time_ago_in_s")
+        age = f"{int(age_seconds)}s" if isinstance(age_seconds, (int, float)) else ""
+        icon = {
+            "pass": ":white_check_mark:",
+            "warn": ":warning:",
+            "fail": ":x:",
+        }.get(status, ":grey_question:")
+        suffix = f" (age: {age})" if age else ""
+        lines.append(f"  {icon} {name}{suffix}")
     return "\n".join(lines) if lines else None
 
 
